@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 
-class GameplayScreen extends StatelessWidget {
+class GameplayScreen extends StatefulWidget {
   final int danceId;
   final String roomCode;
 
@@ -11,68 +12,114 @@ class GameplayScreen extends StatelessWidget {
   });
 
   @override
+  State<GameplayScreen> createState() => _GameplayScreenState();
+}
+
+class _GameplayScreenState extends State<GameplayScreen> {
+  CameraController? _controller;
+  bool _isCameraInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    final cameras = await availableCameras();
+    final frontCamera = cameras.firstWhere(
+          (camera) => camera.lensDirection == CameraLensDirection.front,
+    );
+
+    _controller = CameraController(
+      frontCamera,
+      ResolutionPreset.high,
+      enableAudio: false,
+    );
+
+    try {
+      await _controller!.initialize();
+      if (!mounted) return;
+      setState(() {
+        _isCameraInitialized = true;
+      });
+    } catch (e) {
+      print("Camera error: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: Text("Dance $danceId"),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-      ),
-      body: Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+      body: _isCameraInitialized
+          ? Stack(
+        children: [
+          // Fullscreen portrait camera preview
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _controller!.value.previewSize!.height,
+                height: _controller!.value.previewSize!.width,
+                child: CameraPreview(_controller!),
+              ),
+            ),
           ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.music_note, color: Colors.cyanAccent, size: 60),
-              const SizedBox(height: 30),
-              const Text(
-                "Now Playing",
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 20,
-                  letterSpacing: 1.2,
-                ),
+
+          // Overlay UI
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Dance ${widget.danceId}",
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    "Room Code: ${widget.roomCode}",
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const Spacer(),
+                  const Center(
+                    child: Column(
+                      children: [
+                        Icon(Icons.music_note, color: Colors.cyanAccent, size: 60),
+                        SizedBox(height: 20),
+                        CircularProgressIndicator(color: Colors.cyanAccent),
+                        SizedBox(height: 20),
+                        Text(
+                          "Get ready to dance!",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
               ),
-              const SizedBox(height: 10),
-              Text(
-                "Dance $danceId",
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.cyanAccent,
-                  letterSpacing: 4,
-                ),
-              ),
-              const SizedBox(height: 40),
-              Text(
-                "Room Code: $roomCode",
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.white38,
-                ),
-              ),
-              const SizedBox(height: 40),
-              const CircularProgressIndicator(color: Colors.cyanAccent),
-              const SizedBox(height: 20),
-              const Text(
-                "Get ready to dance!",
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        ],
+      )
+          : const Center(child: CircularProgressIndicator()),
     );
   }
 }
