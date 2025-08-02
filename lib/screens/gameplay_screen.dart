@@ -25,7 +25,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
   bool _isBusy = false;
   CustomPaint? _customPaint;
   Size _imageSize = Size.zero;
-  double _scale = 1.0;
+  double _scaleX = 1.0;
+  double _scaleY = 1.0;
   double _ratio = 1.0;
 
   @override
@@ -46,6 +47,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
       _controller = CameraController(frontCam, ResolutionPreset.high, enableAudio: false);
       await _controller!.initialize();
 
+      if (!mounted) return;
+
       _imageSize = Size(
         _controller!.value.previewSize!.width,
         _controller!.value.previewSize!.height,
@@ -54,7 +57,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
       // Calculate scaling factors
       final screenSize = MediaQuery.of(context).size;
       _ratio = _imageSize.width / _imageSize.height;
-      _scale = screenSize.height / _imageSize.height;
+
+      // Calculate separate scale factors for X and Y to maintain aspect ratio
+      final scaleX = screenSize.width / _imageSize.height;
+      final scaleY = screenSize.height / _imageSize.width;
+      _scaleX = scaleX;
+      _scaleY = scaleY;
 
       _controller!.startImageStream(_processCameraImage);
       setState(() => _isCameraInitialized = true);
@@ -78,8 +86,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
             poses,
             _imageSize,
             _controller!.description.lensDirection == CameraLensDirection.front,
-            scale: _scale,
-            ratio: _ratio,
+            scaleX: _scaleX,
+            scaleY: _scaleY,
           ),
         );
       } else {
@@ -140,13 +148,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Fullscreen portrait camera preview with pose detection
-          SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: _controller!.value.previewSize!.height,
-                height: _controller!.value.previewSize!.width,
+          // Camera preview with pose detection overlay
+          Transform.scale(
+            scale: 1.0,
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1 / _ratio,
                 child: Stack(
                   children: [
                     CameraPreview(_controller!),
@@ -215,35 +222,66 @@ class PosePainter extends CustomPainter {
   final List<Pose> poses;
   final Size imageSize;
   final bool isFrontCamera;
-  final double scale;
-  final double ratio;
+  final double scaleX;
+  final double scaleY;
 
   PosePainter(
       this.poses,
       this.imageSize,
       this.isFrontCamera, {
-        required this.scale,
-        required this.ratio,
+        required this.scaleX,
+        required this.scaleY,
       });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    final linePaint = Paint()
       ..color = Colors.cyanAccent
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke;
 
+    final jointPaint = Paint()
+      ..color = Colors.cyan
+      ..style = PaintingStyle.fill;
+
+    final jointStrokePaint = Paint()
+      ..color = Colors.cyanAccent
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    const jointRadius = 6.0;
+
     for (final pose in poses) {
+      // Function to draw a joint (circle) at a landmark position
+      void drawJoint(PoseLandmarkType type) {
+        final landmark = pose.landmarks[type];
+        if (landmark == null) return;
+
+        // Adjust coordinates for scaling and mirroring
+        double x = landmark.x * scaleX;
+        double y = landmark.y * scaleY;
+
+        if (isFrontCamera) {
+          // Mirror the x-coordinate for front camera
+          x = size.width - x;
+        }
+
+        // Draw the joint with a stroke outline
+        canvas.drawCircle(Offset(x, y), jointRadius, jointPaint);
+        canvas.drawCircle(Offset(x, y), jointRadius, jointStrokePaint);
+      }
+
+      // Function to draw a line between two landmarks
       void drawLine(PoseLandmarkType type1, PoseLandmarkType type2) {
         final landmark1 = pose.landmarks[type1];
         final landmark2 = pose.landmarks[type2];
         if (landmark1 == null || landmark2 == null) return;
 
-        // Adjust coordinates for front camera mirroring and scaling
-        double x1 = landmark1.x * scale;
-        double y1 = landmark1.y * scale;
-        double x2 = landmark2.x * scale;
-        double y2 = landmark2.y * scale;
+        // Adjust coordinates for scaling and mirroring
+        double x1 = landmark1.x * scaleX;
+        double y1 = landmark1.y * scaleY;
+        double x2 = landmark2.x * scaleX;
+        double y2 = landmark2.y * scaleY;
 
         if (isFrontCamera) {
           // Mirror the x-coordinate for front camera
@@ -251,31 +289,54 @@ class PosePainter extends CustomPainter {
           x2 = size.width - x2;
         }
 
-        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
+        // Draw the line
+        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), linePaint);
       }
 
-      // Draw connections
-      // Torso
+      // Draw all the connections (skeleton lines)
+      // Torso connections
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
 
-      // Left arm
+      // Left arm connections
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
       drawLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
 
-      // Right arm
+      // Right arm connections
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
       drawLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
 
-      // Left leg
+      // Left leg connections
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
       drawLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
 
-      // Right leg
+      // Right leg connections
       drawLine(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
       drawLine(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
+
+      // Additional connections for more complete skeleton
+      drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftEar);
+      drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightEar);
+      drawLine(PoseLandmarkType.leftEye, PoseLandmarkType.rightEye);
+      drawLine(PoseLandmarkType.leftEye, PoseLandmarkType.leftEar);
+      drawLine(PoseLandmarkType.rightEye, PoseLandmarkType.rightEar);
+      drawLine(PoseLandmarkType.leftMouth, PoseLandmarkType.rightMouth);
+
+      // Draw all the joints (landmarks)
+      for (final landmark in pose.landmarks.values) {
+        double x = landmark.x * scaleX;
+        double y = landmark.y * scaleY;
+
+        if (isFrontCamera) {
+          x = size.width - x;
+        }
+
+        // Draw the joint with a stroke outline
+        canvas.drawCircle(Offset(x, y), jointRadius, jointPaint);
+        canvas.drawCircle(Offset(x, y), jointRadius, jointStrokePaint);
+      }
     }
   }
 
