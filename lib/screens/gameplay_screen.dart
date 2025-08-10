@@ -28,7 +28,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
   Size _imageSize = Size.zero;
   double _scaleX = 1.0;
   double _scaleY = 1.0;
-  double _ratio = 1.0;
+  double _minScale = 1.0;
+  Offset _offset = Offset.zero;
 
   // Game state variables
   bool _isGameStarted = false;
@@ -38,17 +39,19 @@ class _GameplayScreenState extends State<GameplayScreen> {
   List<int> _stepScores = [];
   List<Map<String, dynamic>> _danceSteps = [];
   List<Pose> _recordedPoses = [];
+  List<Pose> _previousPoses = [];
   int _countdown = 3;
   late Timer _countdownTimer;
   late Timer _gameTimer;
   int _timeRemaining = 60;
   final Random _random = Random();
+  final double _smoothingFactor = 0.3;
 
   @override
   void initState() {
     super.initState();
     _initializeCamera();
-    _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.base));
+    _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
     _loadDanceSteps();
     _startCountdown();
   }
@@ -250,29 +253,79 @@ class _GameplayScreenState extends State<GameplayScreen> {
         orElse: () => cameras.first,
       );
 
-      _controller = CameraController(frontCam, ResolutionPreset.high, enableAudio: false);
+      _controller = CameraController(frontCam, ResolutionPreset.medium, enableAudio: false);
       await _controller!.initialize();
 
       if (!mounted) return;
 
+      // Get the actual image size from the camera (swap width/height for portrait)
       _imageSize = Size(
-        _controller!.value.previewSize!.width,
         _controller!.value.previewSize!.height,
+        _controller!.value.previewSize!.width,
       );
 
       final screenSize = MediaQuery.of(context).size;
-      _ratio = _imageSize.width / _imageSize.height;
 
-      final scaleX = screenSize.width / _imageSize.height;
-      final scaleY = screenSize.height / _imageSize.width;
-      _scaleX = scaleX;
-      _scaleY = scaleY;
+      // Calculate scaling factors to fill the screen while maintaining aspect ratio
+      double scaleX = screenSize.width / _imageSize.width;
+      double scaleY = screenSize.height / _imageSize.height;
+
+      // Use the larger scale to fill the screen
+      _minScale = max(scaleX, scaleY);
+      _scaleX = _minScale;
+      _scaleY = _minScale;
+
+      // Calculate offset to center the image
+      _offset = Offset(
+        (screenSize.width - (_imageSize.width * _minScale)) / 2,
+        (screenSize.height - (_imageSize.height * _minScale)) / 2,
+      );
 
       _controller!.startImageStream(_processCameraImage);
       setState(() => _isCameraInitialized = true);
     } catch (e) {
       debugPrint("Camera error: $e");
     }
+  }
+
+  Pose _smoothPose(Pose newPose) {
+    if (_previousPoses.isEmpty) {
+      _previousPoses.add(newPose);
+      return newPose;
+    }
+
+    final lastPose = _previousPoses.last;
+    final smoothedLandmarks = <PoseLandmarkType, PoseLandmark>{};
+
+    for (final type in newPose.landmarks.keys) {
+      final newLandmark = newPose.landmarks[type]!;
+      final oldLandmark = lastPose.landmarks[type];
+
+      if (oldLandmark == null) {
+        smoothedLandmarks[type] = newLandmark;
+      } else {
+        final smoothedX = oldLandmark.x * _smoothingFactor + newLandmark.x * (1 - _smoothingFactor);
+        final smoothedY = oldLandmark.y * _smoothingFactor + newLandmark.y * (1 - _smoothingFactor);
+        final smoothedZ = oldLandmark.z * _smoothingFactor + newLandmark.z * (1 - _smoothingFactor);
+
+        smoothedLandmarks[type] = PoseLandmark(
+          type: type,
+          x: smoothedX,
+          y: smoothedY,
+          z: smoothedZ,
+          likelihood: newLandmark.likelihood,
+        );
+      }
+    }
+
+    final smoothedPose = Pose(landmarks: smoothedLandmarks);
+    _previousPoses.add(smoothedPose);
+
+    if (_previousPoses.length > 5) {
+      _previousPoses.removeAt(0);
+    }
+
+    return smoothedPose;
   }
 
   void _processCameraImage(CameraImage image) async {
@@ -285,17 +338,17 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
       final poses = await _poseDetector.processImage(inputImage);
       if (poses.isNotEmpty) {
-        if (_isGameStarted && !_isGameFinished) {
-          _recordedPoses.add(poses.first);
-        }
+        final smoothedPose = _smoothPose(poses.first);
+        _recordedPoses.add(smoothedPose);
 
         _customPaint = CustomPaint(
           painter: PosePainter(
-            poses,
+            [smoothedPose],
             _imageSize,
             _controller!.description.lensDirection == CameraLensDirection.front,
             scaleX: _scaleX,
             scaleY: _scaleY,
+            offset: _offset,
             targetPose: _danceSteps[_currentStep]['targetLandmarks'],
           ),
         );
@@ -367,17 +420,23 @@ class _GameplayScreenState extends State<GameplayScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Transform.scale(
-            scale: 1.0,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 1 / _ratio,
+          // Full screen camera preview with skeleton overlay
+          Positioned.fill(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _imageSize.width,
+                height: _imageSize.height,
                 child: Stack(
                   children: [
                     CameraPreview(_controller!),
                     if (_customPaint != null)
-                      Positioned.fill(
-                        child: _customPaint!,
+                      Transform.translate(
+                        offset: _offset,
+                        child: Transform.scale(
+                          scale: _minScale,
+                          child: _customPaint!,
+                        ),
                       ),
                   ],
                 ),
@@ -385,6 +444,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
             ),
           ),
 
+          // Game UI overlay
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -649,6 +709,7 @@ class PosePainter extends CustomPainter {
   final bool isFrontCamera;
   final double scaleX;
   final double scaleY;
+  final Offset offset;
   final Map<String, dynamic>? targetPose;
 
   PosePainter(
@@ -657,18 +718,19 @@ class PosePainter extends CustomPainter {
       this.isFrontCamera, {
         required this.scaleX,
         required this.scaleY,
+        required this.offset,
         this.targetPose,
       });
 
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = Colors.cyanAccent
+      ..color = Colors.cyanAccent.withOpacity(0.8)
       ..strokeWidth = 4.0
       ..style = PaintingStyle.stroke;
 
     final jointPaint = Paint()
-      ..color = Colors.cyan
+      ..color = Colors.cyan.withOpacity(0.9)
       ..style = PaintingStyle.fill;
 
     final jointStrokePaint = Paint()
@@ -677,7 +739,7 @@ class PosePainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     final targetJointPaint = Paint()
-      ..color = Colors.pink
+      ..color = Colors.pink.withOpacity(0.7)
       ..style = PaintingStyle.fill;
 
     final targetJointStrokePaint = Paint()
@@ -685,8 +747,8 @@ class PosePainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    const jointRadius = 6.0;
-    const targetJointRadius = 8.0;
+    const jointRadius = 8.0;
+    const targetJointRadius = 10.0;
 
     // Draw target pose if available
     if (targetPose != null) {
@@ -697,8 +759,13 @@ class PosePainter extends CustomPainter {
           );
 
           final target = entry.value;
-          double x = target['x'] * size.width;
-          double y = target['y'] * size.height;
+          double x = target['x'] * imageSize.width;
+          double y = target['y'] * imageSize.height;
+
+          // Mirror target positions for front camera
+          if (isFrontCamera) {
+            x = imageSize.width - x;
+          }
 
           canvas.drawCircle(Offset(x, y), targetJointRadius, targetJointPaint);
           canvas.drawCircle(Offset(x, y), targetJointRadius, targetJointStrokePaint);
@@ -709,57 +776,60 @@ class PosePainter extends CustomPainter {
     }
 
     for (final pose in poses) {
+      // Helper function to get properly scaled and mirrored offset
+      Offset getOffset(PoseLandmark? landmark) {
+        if (landmark == null) return Offset.zero;
+
+        double x = landmark.x;
+        double y = landmark.y;
+
+        // Mirror only the x-coordinate for front camera
+        if (isFrontCamera) {
+          x = imageSize.width - x;
+        }
+
+        return Offset(x, y);
+      }
+
       void drawLine(PoseLandmarkType type1, PoseLandmarkType type2) {
         final landmark1 = pose.landmarks[type1];
         final landmark2 = pose.landmarks[type2];
         if (landmark1 == null || landmark2 == null) return;
 
-        double x1 = landmark1.x * scaleX;
-        double y1 = landmark1.y * scaleY;
-        double x2 = landmark2.x * scaleX;
-        double y2 = landmark2.y * scaleY;
+        final offset1 = getOffset(landmark1);
+        final offset2 = getOffset(landmark2);
 
-        if (isFrontCamera) {
-          x1 = size.width - x1;
-          x2 = size.width - x2;
-        }
-
-        canvas.drawLine(Offset(x1, y1), Offset(x2, y2), linePaint);
+        canvas.drawLine(offset1, offset2, linePaint);
       }
 
-      // Torso connections
+      // Draw all the connections first
+      // Torso
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
 
-      // Left arm connections
+      // Left arm
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
       drawLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
 
-      // Right arm connections
+      // Right arm
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
       drawLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
 
-      // Left leg connections
+      // Left leg
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
       drawLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
 
-      // Right leg connections
+      // Right leg
       drawLine(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
       drawLine(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
 
-      // Draw all joints
+      // Draw all joints after connections so they appear on top
       for (final landmark in pose.landmarks.values) {
-        double x = landmark.x * scaleX;
-        double y = landmark.y * scaleY;
-
-        if (isFrontCamera) {
-          x = size.width - x;
-        }
-
-        canvas.drawCircle(Offset(x, y), jointRadius, jointPaint);
-        canvas.drawCircle(Offset(x, y), jointRadius, jointStrokePaint);
+        final offset = getOffset(landmark);
+        canvas.drawCircle(offset, jointRadius, jointPaint);
+        canvas.drawCircle(offset, jointRadius, jointStrokePaint);
       }
     }
   }
