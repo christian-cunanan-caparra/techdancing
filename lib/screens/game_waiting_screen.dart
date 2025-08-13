@@ -8,7 +8,7 @@ class GameWaitingScreen extends StatefulWidget {
   final Map user;
   final String roomCode;
   final bool isHost;
-
+//gg
   const GameWaitingScreen({
     super.key,
     required this.user,
