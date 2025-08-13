@@ -33,19 +33,24 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
   // Game state variables
   bool _isGameStarted = false;
-  bool _isGameFinished = false;
-  int _score = 0;
   int _currentStep = 0;
-  List<int> _stepScores = [];
   List<Map<String, dynamic>> _danceSteps = [];
-  List<Pose> _recordedPoses = [];
   List<Pose> _previousPoses = [];
   int _countdown = 3;
   late Timer _countdownTimer;
   late Timer _gameTimer;
   int _timeRemaining = 60;
-  final Random _random = Random();
   final double _smoothingFactor = 0.3;
+
+  // Scoring variables
+  int _totalScore = 0;
+  int _currentStepScore = 0;
+  String _feedbackText = "";
+  Color _feedbackColor = Colors.white;
+  Timer? _feedbackTimer;
+  List<int> _stepScores = [];
+  bool _showScoreAnimation = false;
+  int _lastScoreIncrement = 0;
 
   @override
   void initState() {
@@ -61,51 +66,208 @@ class _GameplayScreenState extends State<GameplayScreen> {
       {
         'name': 'Sumabay Ka',
         'description': 'Arms swaying side to side with small steps',
-        'targetLandmarks': {
-          'leftShoulder': {'x': 0.4, 'y': 0.3},
-          'rightShoulder': {'x': 0.6, 'y': 0.3},
-        },
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
+        'scoringLogic': _scoreSumabayKa,
       },
       {
         'name': 'Chacha Step',
         'description': 'Side chacha steps with arm swings',
-        'targetLandmarks': {
-          'leftHip': {'x': 0.3, 'y': 0.5},
-          'rightHip': {'x': 0.7, 'y': 0.5},
-        },
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
+        'scoringLogic': _scoreChachaStep,
       },
       {
         'name': 'Jumbo Hotdog Pose',
         'description': 'Arms wide open then pointing forward',
-        'targetLandmarks': {
-          'leftWrist': {'x': 0.2, 'y': 0.4},
-          'rightWrist': {'x': 0.8, 'y': 0.4},
-        },
         'duration': 16,
         'originalDuration': 16,
         'lyrics': '[jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?]',
+        'scoringLogic': _scoreJumboHotdogPose,
       },
       {
         'name': 'Final Pose',
         'description': 'Hands on hips with confident stance',
-        'targetLandmarks': {
-          'leftHip': {'x': 0.4, 'y': 0.5},
-          'rightHip': {'x': 0.6, 'y': 0.5},
-          'leftWrist': {'x': 0.4, 'y': 0.6},
-          'rightWrist': {'x': 0.6, 'y': 0.6},
-        },
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
+        'scoringLogic': _scoreFinalPose,
       },
     ];
     _stepScores = List.filled(_danceSteps.length, 0);
+  }
+
+  // Scoring functions for each dance step
+  void _scoreSumabayKa(Pose pose) {
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+
+    if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _updateFeedback("Show your arms!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+      return;
+    }
+
+    // Check if arms are moving side to side (alternating up/down)
+    final leftArmUp = leftWrist.y < leftShoulder.y;
+    final rightArmUp = rightWrist.y < rightShoulder.y;
+
+    // Should be alternating - one arm up, one arm down
+    if (leftArmUp != rightArmUp) {
+      final score = 100 + Random().nextInt(50); // Base score + random bonus
+      _addToScore(score);
+      _updateFeedback("Perfect sway! +$score", Colors.green);
+    } else {
+      _updateFeedback("Alternate your arms!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 20, 0);
+    }
+  }
+
+  void _scoreChachaStep(Pose pose) {
+    final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
+    final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+
+    if (leftElbow == null || rightElbow == null || leftShoulder == null || rightShoulder == null) {
+      _updateFeedback("Show your arms!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+      return;
+    }
+
+    // Check if elbows are bent (arms swinging)
+    final leftArmAngle = _calculateAngle(leftShoulder, leftElbow, leftWrist!);
+    final rightArmAngle = _calculateAngle(rightShoulder, rightElbow, rightWrist!);
+
+    // Arms should be bent between 60-120 degrees for chacha
+    if ((leftArmAngle > 60 && leftArmAngle < 120) ||
+        (rightArmAngle > 60 && rightArmAngle < 120)) {
+      final score = 150 + Random().nextInt(50);
+      _addToScore(score);
+      _updateFeedback("Great arm swing! +$score", Colors.green);
+    } else {
+      _updateFeedback("Bend your arms more!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 15, 0);
+    }
+  }
+
+  void _scoreJumboHotdogPose(Pose pose) {
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+
+    if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _updateFeedback("Show your arms!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+      return;
+    }
+
+    // Check if arms are wide open (wrist higher than shoulders and wide)
+    final armsWide = (leftWrist.x < leftShoulder.x - 50 && rightWrist.x > rightShoulder.x + 50) ||
+        (leftWrist.x > leftShoulder.x + 50 && rightWrist.x < rightShoulder.x - 50);
+
+    final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
+
+    if (armsWide && armsUp) {
+      final score = 200 + Random().nextInt(100);
+      _addToScore(score);
+      _updateFeedback("JUMBO HOTDOG! +$score", Colors.green);
+    } else if (armsUp) {
+      _updateFeedback("Wider arms!", Colors.orange);
+      _addToScore(50);
+    } else {
+      _updateFeedback("Arms up and wide!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+    }
+  }
+
+  void _scoreFinalPose(Pose pose) {
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
+    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
+
+    if (leftWrist == null || rightWrist == null || leftHip == null || rightHip == null) {
+      _updateFeedback("Show your hands!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+      return;
+    }
+
+    // Check if hands are on hips (close to hip landmarks)
+    final leftHandOnHip = _distance(leftWrist, leftHip) < 50;
+    final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
+
+    if (leftHandOnHip && rightHandOnHip) {
+      final score = 250 + Random().nextInt(150);
+      _addToScore(score);
+      _updateFeedback("Perfect final pose! +$score", Colors.green);
+    } else if (leftHandOnHip || rightHandOnHip) {
+      _updateFeedback("Both hands on hips!", Colors.orange);
+      _addToScore(80);
+    } else {
+      _updateFeedback("Hands on hips!", Colors.orange);
+      _currentStepScore = max(_currentStepScore - 10, 0);
+    }
+  }
+
+  void _addToScore(int points) {
+    setState(() {
+      _currentStepScore = min(_currentStepScore + points, 1000);
+      _lastScoreIncrement = points;
+      _showScoreAnimation = true;
+    });
+
+    Timer(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() {
+          _showScoreAnimation = false;
+        });
+      }
+    });
+  }
+
+  // Helper function to calculate angle between three points
+  double _calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
+    final baX = a.x - b.x;
+    final baY = a.y - b.y;
+    final bcX = c.x - b.x;
+    final bcY = c.y - b.y;
+
+    final dotProduct = (baX * bcX) + (baY * bcY);
+    final magBA = sqrt(baX * baX + baY * baY);
+    final magBC = sqrt(bcX * bcX + bcY * bcY);
+
+    final angle = acos(dotProduct / (magBA * magBC));
+    return angle * (180 / pi);
+  }
+
+  // Helper function to calculate distance between two landmarks
+  double _distance(PoseLandmark a, PoseLandmark b) {
+    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
+  }
+
+  void _updateFeedback(String text, Color color) {
+    setState(() {
+      _feedbackText = text;
+      _feedbackColor = color;
+    });
+
+    // Clear feedback after 2 seconds
+    _feedbackTimer?.cancel();
+    _feedbackTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _feedbackText = "";
+        });
+      }
+    });
   }
 
   void _startCountdown() {
@@ -125,8 +287,10 @@ class _GameplayScreenState extends State<GameplayScreen> {
     setState(() {
       _isGameStarted = true;
       _currentStep = 0;
-      _score = 0;
       _timeRemaining = 60;
+      _totalScore = 0;
+      _currentStepScore = 0;
+      _stepScores = List.filled(_danceSteps.length, 0);
     });
 
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -148,9 +312,14 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _nextStep() {
+    // Save the current step score before moving on
+    _stepScores[_currentStep] = _currentStepScore;
+    _totalScore += _currentStepScore;
+
     if (_currentStep < _danceSteps.length - 1) {
       setState(() {
         _currentStep++;
+        _currentStepScore = 0;
         _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['originalDuration'];
       });
     } else {
@@ -160,89 +329,74 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
   void _endGame() {
     _gameTimer.cancel();
-    _calculateFinalScore();
-    setState(() {
-      _isGameFinished = true;
-    });
-  }
 
-  void _calculateFinalScore() {
-    int totalScore = 0;
+    // Calculate final score
+    final maxPossibleScore = _danceSteps.length * 1000;
+    final percentage = (_totalScore / maxPossibleScore * 100).round();
 
-    for (int i = 0; i < _stepScores.length; i++) {
-      int stepScore;
+    String resultText;
+    Color resultColor;
 
-      switch(i) {
-        case 0:
-          stepScore = _evaluateArmSwing(_recordedPoses.isNotEmpty ? _recordedPoses[i] : null);
-          break;
-        case 1:
-          stepScore = _evaluateHipMovement(_recordedPoses.isNotEmpty ? _recordedPoses[i] : null);
-          break;
-        case 2:
-          stepScore = _evaluateJumboPose(_recordedPoses.isNotEmpty ? _recordedPoses[i] : null);
-          break;
-        case 3:
-          stepScore = _evaluateFinalPose(_recordedPoses.isNotEmpty ? _recordedPoses[i] : null);
-          break;
-        default:
-          stepScore = 500 + _random.nextInt(500);
-      }
-
-      _stepScores[i] = stepScore;
-      totalScore += stepScore;
+    if (percentage >= 90) {
+      resultText = "PERFECT! ($percentage%)";
+      resultColor = Colors.cyanAccent;
+    } else if (percentage >= 70) {
+      resultText = "VERY GOOD! ($percentage%)";
+      resultColor = Colors.green;
+    } else if (percentage >= 50) {
+      resultText = "GOOD ($percentage%)";
+      resultColor = Colors.yellow;
+    } else {
+      resultText = "TRY AGAIN ($percentage%)";
+      resultColor = Colors.orange;
     }
 
-    setState(() {
-      _score = totalScore ~/ _stepScores.length;
-    });
-  }
-
-  int _evaluateArmSwing(Pose? pose) {
-    if (pose == null) return 500;
-
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-
-    if (leftShoulder == null || rightShoulder == null) return 500;
-
-    double distance = (leftShoulder.x - rightShoulder.x).abs();
-
-    if (distance > 0.3) return 950 + _random.nextInt(50);
-    if (distance > 0.2) return 850 + _random.nextInt(100);
-    return 600 + _random.nextInt(200);
-  }
-
-  int _evaluateJumboPose(Pose? pose) {
-    if (pose == null) return 500;
-
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-
-    if (leftWrist == null || rightWrist == null) return 500;
-
-    double spread = (leftWrist.x - rightWrist.x).abs();
-    bool armsUp = leftShoulder != null && rightShoulder != null
-        ? (leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y)
-        : false;
-
-    if (spread > 0.6 && armsUp) return 1000;
-    if (spread > 0.4) return 800 + _random.nextInt(150);
-    return 600 + _random.nextInt(200);
-  }
-
-  int _evaluateHipMovement(Pose? pose) => 700 + _random.nextInt(300);
-  int _evaluateFinalPose(Pose? pose) => 750 + _random.nextInt(250);
-
-  String _getScoreFeedback(int score) {
-    if (score >= 950) return "PERFECT! 🤩";
-    if (score >= 850) return "Impressive! 😍";
-    if (score >= 750) return "Great job! 😊";
-    if (score >= 650) return "Good effort! 👍";
-    if (score >= 500) return "Keep practicing! 💪";
-    return "Try again! 😅";
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Game Over"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Total Score: $_totalScore",
+              style: const TextStyle(fontSize: 24),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              resultText,
+              style: TextStyle(
+                fontSize: 20,
+                color: resultColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ..._danceSteps.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final step = entry.value;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(step['name']),
+                    Text("${_stepScores[idx]} pts"),
+                  ],
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    ).then((_) => Navigator.pop(context));
   }
 
   Future<void> _initializeCamera() async {
@@ -329,7 +483,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _processCameraImage(CameraImage image) async {
-    if (_isBusy || !mounted || !_isGameStarted || _isGameFinished) return;
+    if (_isBusy || !mounted || !_isGameStarted) return;
     _isBusy = true;
 
     try {
@@ -339,7 +493,11 @@ class _GameplayScreenState extends State<GameplayScreen> {
       final poses = await _poseDetector.processImage(inputImage);
       if (poses.isNotEmpty) {
         final smoothedPose = _smoothPose(poses.first);
-        _recordedPoses.add(smoothedPose);
+
+        // Score the current pose based on the current dance step
+        if (_isGameStarted && _currentStep < _danceSteps.length) {
+          _danceSteps[_currentStep]['scoringLogic'](smoothedPose);
+        }
 
         _customPaint = CustomPaint(
           painter: PosePainter(
@@ -349,7 +507,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
             scaleX: _scaleX,
             scaleY: _scaleY,
             offset: _offset,
-            targetPose: _danceSteps[_currentStep]['targetLandmarks'],
           ),
         );
       } else {
@@ -400,6 +557,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
     _poseDetector.close();
     _countdownTimer.cancel();
     _gameTimer.cancel();
+    _feedbackTimer?.cancel();
     super.dispose();
   }
 
@@ -411,10 +569,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
           child: CircularProgressIndicator(),
         ),
       );
-    }
-
-    if (_isGameFinished) {
-      return _buildResultsScreen();
     }
 
     return Scaffold(
@@ -474,13 +628,30 @@ class _GameplayScreenState extends State<GameplayScreen> {
                           ),
                         ],
                       ),
-                      Text(
-                        "$_timeRemaining s",
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            "$_timeRemaining s",
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          AnimatedOpacity(
+                            opacity: _showScoreAnimation ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: Text(
+                              "+$_lastScoreIncrement",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.cyanAccent,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -563,26 +734,34 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             color: Colors.cyanAccent,
                             minHeight: 10,
                           ),
+                          const SizedBox(height: 10),
+                          Text(
+                            "Score: $_currentStepScore/1000",
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.white,
+                            ),
+                          ),
                         ],
                       ),
                     ),
 
                   const Spacer(),
 
-                  if (_isGameStarted)
+                  if (_feedbackText.isNotEmpty)
                     Center(
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
+                          color: Colors.black.withOpacity(0.7),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          "Score: $_score",
-                          style: const TextStyle(
-                            fontSize: 24,
+                          _feedbackText,
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: _feedbackColor,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -595,112 +774,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
       ),
     );
   }
-
-  Widget _buildResultsScreen() {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _getScoreFeedback(_score),
-              style: const TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                color: Colors.cyanAccent,
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            Text(
-              "Your Score",
-              style: TextStyle(
-                fontSize: 24,
-                color: Colors.white.withOpacity(0.8),
-              ),
-            ),
-
-            Text(
-              _score.toString(),
-              style: const TextStyle(
-                fontSize: 72,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            Expanded(
-              child: ListView.builder(
-                itemCount: _stepScores.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.cyanAccent,
-                      child: Text(
-                        (index + 1).toString(),
-                        style: const TextStyle(color: Colors.black),
-                      ),
-                    ),
-                    title: Text(
-                      _danceSteps[index]['name'],
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    subtitle: LinearProgressIndicator(
-                      value: _stepScores[index] / 1000,
-                      backgroundColor: Colors.white24,
-                      color: Colors.cyanAccent,
-                    ),
-                    trailing: Text(
-                      _stepScores[index].toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.cyanAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text(
-                "BACK TO LOBBY",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class PosePainter extends CustomPainter {
@@ -710,7 +783,6 @@ class PosePainter extends CustomPainter {
   final double scaleX;
   final double scaleY;
   final Offset offset;
-  final Map<String, dynamic>? targetPose;
 
   PosePainter(
       this.poses,
@@ -719,7 +791,6 @@ class PosePainter extends CustomPainter {
         required this.scaleX,
         required this.scaleY,
         required this.offset,
-        this.targetPose,
       });
 
   @override
@@ -738,42 +809,7 @@ class PosePainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    final targetJointPaint = Paint()
-      ..color = Colors.pink.withOpacity(0.7)
-      ..style = PaintingStyle.fill;
-
-    final targetJointStrokePaint = Paint()
-      ..color = Colors.pinkAccent
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
-
     const jointRadius = 8.0;
-    const targetJointRadius = 10.0;
-
-    // Draw target pose if available
-    if (targetPose != null) {
-      for (final entry in targetPose!.entries) {
-        try {
-          final type = PoseLandmarkType.values.firstWhere(
-                (e) => e.toString().split('.').last == entry.key,
-          );
-
-          final target = entry.value;
-          double x = target['x'] * imageSize.width;
-          double y = target['y'] * imageSize.height;
-
-          // Mirror target positions for front camera
-          if (isFrontCamera) {
-            x = imageSize.width - x;
-          }
-
-          canvas.drawCircle(Offset(x, y), targetJointRadius, targetJointPaint);
-          canvas.drawCircle(Offset(x, y), targetJointRadius, targetJointStrokePaint);
-        } catch (e) {
-          debugPrint("Error drawing target pose: $e");
-        }
-      }
-    }
 
     for (final pose in poses) {
       // Helper function to get properly scaled and mirrored offset
@@ -788,7 +824,11 @@ class PosePainter extends CustomPainter {
           x = imageSize.width - x;
         }
 
-        return Offset(x, y);
+        // Adjust position to be more top and right
+        return Offset(
+          x * 1.15,
+          y * 0.8,
+        );
       }
 
       void drawLine(PoseLandmarkType type1, PoseLandmarkType type2) {

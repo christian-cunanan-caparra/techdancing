@@ -123,7 +123,7 @@ class MainMenuScreen extends StatelessWidget {
                 const SizedBox(height: 40),
                 buildGradientButton(
                   icon: Icons.play_arrow,
-                  label: "PLAY NOW",
+                  label: "SINGLE PLAYER",
                   onPressed: () => startGame(context),
                   gradientColors: [Colors.greenAccent, Colors.cyanAccent],
                 ),
