@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
+typedef ScoreFn = void Function(Pose pose);
+
 class GameplayScreen extends StatefulWidget {
   final int danceId;
   final String roomCode;
@@ -19,46 +21,75 @@ class GameplayScreen extends StatefulWidget {
   State<GameplayScreen> createState() => _GameplayScreenState();
 }
 
-class _GameplayScreenState extends State<GameplayScreen> {
+class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObserver {
+  // Camera and Pose Detection
   CameraController? _controller;
   bool _isCameraInitialized = false;
   late PoseDetector _poseDetector;
   bool _isBusy = false;
   CustomPaint? _customPaint;
-  Size _imageSize = Size.zero;
-  double _scaleX = 1.0;
-  double _scaleY = 1.0;
-  double _minScale = 1.0;
-  Offset _offset = Offset.zero;
 
-  // Game state variables
+  // This is the camera image's intrinsic size (portrait-corrected)
+  Size _imageSize = Size.zero;
+
+  // Alignment helpers
+  bool _poseDetectionEnabled = true;
+  int _noPoseDetectedCount = 0;
+
+  // Auto-Alignment
+  Alignment _bodyAlignment = Alignment.center;
+  double _bodyScale = 1.0;
+  bool _showAlignmentGuide = true;
+  String _alignmentFeedback = "";
+  Timer? _alignmentTimer;
+  bool _isPerfectlyAligned = false;
+
+  // Game State
   bool _isGameStarted = false;
   int _currentStep = 0;
-  List<Map<String, dynamic>> _danceSteps = [];
+  late List<Map<String, dynamic>> _danceSteps;
   List<Pose> _previousPoses = [];
   int _countdown = 3;
-  late Timer _countdownTimer;
-  late Timer _gameTimer;
+  Timer? _countdownTimer;
+  Timer? _gameTimer;
   int _timeRemaining = 60;
   final double _smoothingFactor = 0.3;
 
-  // Scoring variables
+  // Scoring
   int _totalScore = 0;
   int _currentStepScore = 0;
   String _feedbackText = "";
   Color _feedbackColor = Colors.white;
   Timer? _feedbackTimer;
-  List<int> _stepScores = [];
+  late List<int> _stepScores;
   bool _showScoreAnimation = false;
   int _lastScoreIncrement = 0;
+  int _consecutiveGoodPoses = 0;
+
+  // Prevents repeated scoring while holding the same pose
+  bool _poseMatched = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
     _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
     _loadDanceSteps();
     _startCountdown();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_controller == null || !(_controller!.value.isInitialized)) return;
+
+    if (state == AppLifecycleState.inactive) {
+      _controller?.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_controller != null) {
+        _initializeCamera();
+      }
+    }
   }
 
   void _loadDanceSteps() {
@@ -69,7 +100,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
-        'scoringLogic': _scoreSumabayKa,
+        'scoringLogic': _scoreSumabayKa as ScoreFn,
       },
       {
         'name': 'Chacha Step',
@@ -77,7 +108,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
-        'scoringLogic': _scoreChachaStep,
+        'scoringLogic': _scoreChachaStep as ScoreFn,
       },
       {
         'name': 'Jumbo Hotdog Pose',
@@ -85,7 +116,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
         'duration': 16,
         'originalDuration': 16,
         'lyrics': '[jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?]',
-        'scoringLogic': _scoreJumboHotdogPose,
+        'scoringLogic': _scoreJumboHotdogPose as ScoreFn,
       },
       {
         'name': 'Final Pose',
@@ -93,41 +124,76 @@ class _GameplayScreenState extends State<GameplayScreen> {
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
-        'scoringLogic': _scoreFinalPose,
+        'scoringLogic': _scoreFinalPose as ScoreFn,
       },
     ];
     _stepScores = List.filled(_danceSteps.length, 0);
   }
 
-  // Scoring functions for each dance step
+  // ===== Alignment helper -> returns 1.0 (perfect), 0.6 (ok), or 0.0 (off) =====
+  double get _alignmentMultiplier {
+    if (_isPerfectlyAligned) return 1.0;
+
+    final dx = _bodyAlignment.x.abs();
+    final dy = _bodyAlignment.y.abs();
+    final scale = _bodyScale;
+
+    final okAligned = (dx <= 0.35 && dy <= 0.35 && scale >= 0.65 && scale <= 1.45);
+    final offFrame = !(scale >= 0.5 && scale <= 1.7) || dx > 0.6 || dy > 0.6;
+
+    if (offFrame) return 0.0;
+    if (okAligned) return 0.6;
+    return 0.3;
+  }
+
+  // ==================== Scoring functions ====================
+
   void _scoreSumabayKa(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
       return;
     }
 
-    // Check if arms are moving side to side (alternating up/down)
     final leftArmUp = leftWrist.y < leftShoulder.y;
     final rightArmUp = rightWrist.y < rightShoulder.y;
 
-    // Should be alternating - one arm up, one arm down
     if (leftArmUp != rightArmUp) {
-      final score = 100 + Random().nextInt(50); // Base score + random bonus
-      _addToScore(score);
-      _updateFeedback("Perfect sway! +$score", Colors.green);
+      if (!_poseMatched) {
+        final base = 100 + Random().nextInt(50);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Perfect sway! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
     } else {
       _updateFeedback("Alternate your arms!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 20, 0);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreChachaStep(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
     final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
@@ -135,93 +201,116 @@ class _GameplayScreenState extends State<GameplayScreen> {
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
 
-    if (leftElbow == null || rightElbow == null || leftShoulder == null || rightShoulder == null) {
-      _updateFeedback("Show your arms!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
+    if (leftElbow == null || rightElbow == null || leftShoulder == null || rightShoulder == null || leftWrist == null || rightWrist == null) {
+      _poseMatched = false;
+      _updateFeedback("Keep elbows & wrists visible!", Colors.orange);
       return;
     }
 
-    // Check if elbows are bent (arms swinging)
-    final leftArmAngle = _calculateAngle(leftShoulder, leftElbow, leftWrist!);
-    final rightArmAngle = _calculateAngle(rightShoulder, rightElbow, rightWrist!);
+    final leftArmAngle = _calculateAngle(leftShoulder, leftElbow, leftWrist);
+    final rightArmAngle = _calculateAngle(rightShoulder, rightElbow, rightWrist);
 
-    // Arms should be bent between 60-120 degrees for chacha
-    if ((leftArmAngle > 60 && leftArmAngle < 120) ||
-        (rightArmAngle > 60 && rightArmAngle < 120)) {
-      final score = 150 + Random().nextInt(50);
-      _addToScore(score);
-      _updateFeedback("Great arm swing! +$score", Colors.green);
+    if ((leftArmAngle > 60 && leftArmAngle < 120) || (rightArmAngle > 60 && rightArmAngle < 120)) {
+      if (!_poseMatched) {
+        final base = 150 + Random().nextInt(50);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Great arm swing! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
     } else {
       _updateFeedback("Bend your arms more!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 15, 0);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreJumboHotdogPose(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
     final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
       return;
     }
 
-    // Check if arms are wide open (wrist higher than shoulders and wide)
     final armsWide = (leftWrist.x < leftShoulder.x - 50 && rightWrist.x > rightShoulder.x + 50) ||
         (leftWrist.x > leftShoulder.x + 50 && rightWrist.x < rightShoulder.x - 50);
 
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
 
     if (armsWide && armsUp) {
-      final score = 200 + Random().nextInt(100);
-      _addToScore(score);
-      _updateFeedback("JUMBO HOTDOG! +$score", Colors.green);
-    } else if (armsUp) {
-      _updateFeedback("Wider arms!", Colors.orange);
-      _addToScore(50);
+      if (!_poseMatched) {
+        final base = 200 + Random().nextInt(100);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("JUMBO HOTDOG! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
     } else {
       _updateFeedback("Arms up and wide!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreFinalPose(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
     final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
 
     if (leftWrist == null || rightWrist == null || leftHip == null || rightHip == null) {
-      _updateFeedback("Show your hands!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
+      _poseMatched = false;
+      _updateFeedback("Show your hands & hips!", Colors.orange);
       return;
     }
 
-    // Check if hands are on hips (close to hip landmarks)
     final leftHandOnHip = _distance(leftWrist, leftHip) < 50;
     final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
 
     if (leftHandOnHip && rightHandOnHip) {
-      final score = 250 + Random().nextInt(150);
-      _addToScore(score);
-      _updateFeedback("Perfect final pose! +$score", Colors.green);
-    } else if (leftHandOnHip || rightHandOnHip) {
-      _updateFeedback("Both hands on hips!", Colors.orange);
-      _addToScore(80);
+      if (!_poseMatched) {
+        final base = 250 + Random().nextInt(150);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Perfect final pose! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
     } else {
       _updateFeedback("Hands on hips!", Colors.orange);
-      _currentStepScore = max(_currentStepScore - 10, 0);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _addToScore(int points) {
+    if (points <= 0) return;
     setState(() {
       _currentStepScore = min(_currentStepScore + points, 1000);
       _lastScoreIncrement = points;
       _showScoreAnimation = true;
+      _noPoseDetectedCount = 0;
     });
 
     Timer(const Duration(milliseconds: 800), () {
@@ -233,7 +322,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
     });
   }
 
-  // Helper function to calculate angle between three points
   double _calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
     final baX = a.x - b.x;
     final baY = a.y - b.y;
@@ -244,11 +332,14 @@ class _GameplayScreenState extends State<GameplayScreen> {
     final magBA = sqrt(baX * baX + baY * baY);
     final magBC = sqrt(bcX * bcX + bcY * bcY);
 
-    final angle = acos(dotProduct / (magBA * magBC));
+    final denom = magBA * magBC;
+    if (denom == 0) return 180;
+
+    final cosTheta = (dotProduct / denom).clamp(-1.0, 1.0);
+    final angle = acos(cosTheta);
     return angle * (180 / pi);
   }
 
-  // Helper function to calculate distance between two landmarks
   double _distance(PoseLandmark a, PoseLandmark b) {
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
   }
@@ -259,7 +350,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
       _feedbackColor = color;
     });
 
-    // Clear feedback after 2 seconds
     _feedbackTimer?.cancel();
     _feedbackTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) {
@@ -271,12 +361,14 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _startCountdown() {
+    _countdownTimer?.cancel();
+    _countdown = 3;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdown > 1) {
           _countdown--;
         } else {
-          _countdownTimer.cancel();
+          _countdownTimer?.cancel();
           _startGame();
         }
       });
@@ -291,8 +383,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
       _totalScore = 0;
       _currentStepScore = 0;
       _stepScores = List.filled(_danceSteps.length, 0);
+      _poseDetectionEnabled = true;
+      _showAlignmentGuide = true;
+      _isPerfectlyAligned = false;
     });
 
+    _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_timeRemaining > 0) {
@@ -312,7 +408,6 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _nextStep() {
-    // Save the current step score before moving on
     _stepScores[_currentStep] = _currentStepScore;
     _totalScore += _currentStepScore;
 
@@ -321,6 +416,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
         _currentStep++;
         _currentStepScore = 0;
         _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['originalDuration'];
+        _showAlignmentGuide = true;
+        _isPerfectlyAligned = false;
       });
     } else {
       _endGame();
@@ -328,11 +425,9 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _endGame() {
-    _gameTimer.cancel();
-
-    // Calculate final score
+    _gameTimer?.cancel();
     final maxPossibleScore = _danceSteps.length * 1000;
-    final percentage = (_totalScore / maxPossibleScore * 100).round();
+    final percentage = maxPossibleScore == 0 ? 0 : (_totalScore / maxPossibleScore * 100).round();
 
     String resultText;
     Color resultColor;
@@ -402,44 +497,118 @@ class _GameplayScreenState extends State<GameplayScreen> {
   Future<void> _initializeCamera() async {
     try {
       final cameras = await availableCameras();
-      final frontCam = cameras.firstWhere(
-            (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
+      CameraDescription camera;
+
+      try {
+        camera = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front);
+      } catch (e) {
+        camera = cameras.first;
+      }
+
+      _controller = CameraController(
+        camera,
+        ResolutionPreset.low,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
-      _controller = CameraController(frontCam, ResolutionPreset.medium, enableAudio: false);
-      await _controller!.initialize();
+      await _controller!.initialize().then((_) {
+        if (!mounted) return;
 
-      if (!mounted) return;
+        // In portrait, previewSize is landscape (width>height), so swap.
+        final previewSize = _controller!.value.previewSize!;
+        _imageSize = Size(previewSize.height, previewSize.width);
 
-      // Get the actual image size from the camera (swap width/height for portrait)
-      _imageSize = Size(
-        _controller!.value.previewSize!.height,
-        _controller!.value.previewSize!.width,
-      );
+        // Start stream
+        _controller!.startImageStream(_processCameraImage);
 
-      final screenSize = MediaQuery.of(context).size;
-
-      // Calculate scaling factors to fill the screen while maintaining aspect ratio
-      double scaleX = screenSize.width / _imageSize.width;
-      double scaleY = screenSize.height / _imageSize.height;
-
-      // Use the larger scale to fill the screen
-      _minScale = max(scaleX, scaleY);
-      _scaleX = _minScale;
-      _scaleY = _minScale;
-
-      // Calculate offset to center the image
-      _offset = Offset(
-        (screenSize.width - (_imageSize.width * _minScale)) / 2,
-        (screenSize.height - (_imageSize.height * _minScale)) / 2,
-      );
-
-      _controller!.startImageStream(_processCameraImage);
-      setState(() => _isCameraInitialized = true);
+        setState(() => _isCameraInitialized = true);
+      });
     } catch (e) {
       debugPrint("Camera error: $e");
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Camera Error"),
+            content: const Text("Could not initialize camera. Please check permissions and try again."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
+            ],
+          ),
+        ).then((_) => Navigator.pop(context));
+      }
     }
+  }
+
+  void _calculateAlignment(Pose pose) {
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
+    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
+
+    if (leftShoulder == null || rightShoulder == null || leftHip == null || rightHip == null) {
+      setState(() {
+        _alignmentFeedback = "Show your full body";
+        _isPerfectlyAligned = false;
+        _bodyAlignment = Alignment.center;
+        _bodyScale = 1.0;
+      });
+      return;
+    }
+
+    final shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
+    final shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2;
+    final hipCenterX = (leftHip.x + rightHip.x) / 2;
+    final hipCenterY = (leftHip.y + rightHip.y) / 2;
+
+    final bodyCenterX = (shoulderCenterX + hipCenterX) / 2;
+    final bodyCenterY = (shoulderCenterY + hipCenterY) / 2;
+
+    final screenCenterX = _imageSize.width / 2;
+    final screenCenterY = _imageSize.height / 2;
+
+    final alignX = (bodyCenterX - screenCenterX) / screenCenterX;
+    final alignY = (bodyCenterY - screenCenterY) / screenCenterY;
+
+    final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
+    final idealShoulderWidth = _imageSize.width * 0.3;
+    final scale = shoulderWidth / idealShoulderWidth;
+
+    bool isAligned = false;
+    String feedback = "";
+
+    if (alignX.abs() > 0.2) {
+      feedback = alignX > 0 ? "Move left" : "Move right";
+    } else if (alignY.abs() > 0.2) {
+      feedback = alignY > 0 ? "Move up" : "Move down";
+    } else if (scale < 0.8) {
+      feedback = "Move closer";
+    } else if (scale > 1.2) {
+      feedback = "Move back";
+    } else {
+      feedback = "Perfect position!";
+      isAligned = true;
+    }
+
+    setState(() {
+      _bodyAlignment = Alignment(alignX, alignY);
+      _bodyScale = scale;
+      _alignmentFeedback = feedback;
+      _isPerfectlyAligned = isAligned;
+
+      if (isAligned) {
+        _alignmentTimer?.cancel();
+        _alignmentTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted) setState(() => _showAlignmentGuide = false);
+        });
+      } else {
+        _showAlignmentGuide = true;
+      }
+    });
   }
 
   Pose _smoothPose(Pose newPose) {
@@ -483,20 +652,26 @@ class _GameplayScreenState extends State<GameplayScreen> {
   }
 
   void _processCameraImage(CameraImage image) async {
-    if (_isBusy || !mounted || !_isGameStarted) return;
+    if (_isBusy || !mounted || !_isGameStarted || !_poseDetectionEnabled) return;
     _isBusy = true;
 
     try {
       final inputImage = _inputImageFromCameraImage(image);
-      if (inputImage == null) return;
+      if (inputImage == null) {
+        _isBusy = false;
+        return;
+      }
 
       final poses = await _poseDetector.processImage(inputImage);
       if (poses.isNotEmpty) {
         final smoothedPose = _smoothPose(poses.first);
+        _noPoseDetectedCount = 0;
 
-        // Score the current pose based on the current dance step
+        _calculateAlignment(smoothedPose);
+
         if (_isGameStarted && _currentStep < _danceSteps.length) {
-          _danceSteps[_currentStep]['scoringLogic'](smoothedPose);
+          final ScoreFn fn = _danceSteps[_currentStep]['scoringLogic'] as ScoreFn;
+          fn(smoothedPose);
         }
 
         _customPaint = CustomPaint(
@@ -504,17 +679,33 @@ class _GameplayScreenState extends State<GameplayScreen> {
             [smoothedPose],
             _imageSize,
             _controller!.description.lensDirection == CameraLensDirection.front,
-            scaleX: _scaleX,
-            scaleY: _scaleY,
-            offset: _offset,
           ),
         );
       } else {
         _customPaint = null;
+        _noPoseDetectedCount++;
+
+        if (_noPoseDetectedCount > 5) {
+          _updateFeedback("Can't see you! Move into frame", Colors.red);
+        }
+
+        if (_noPoseDetectedCount > 15) {
+          setState(() => _poseDetectionEnabled = false);
+          Timer(const Duration(seconds: 2), () {
+            if (mounted) setState(() => _poseDetectionEnabled = true);
+          });
+        }
       }
     } catch (e) {
       debugPrint("Pose detection error: $e");
       _customPaint = null;
+
+      try {
+        await _poseDetector.close();
+        _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
+      } catch (e) {
+        debugPrint("Error reinitializing pose detector: $e");
+      }
     } finally {
       if (mounted) setState(() {});
       _isBusy = false;
@@ -529,8 +720,8 @@ class _GameplayScreenState extends State<GameplayScreen> {
       }
       final bytes = allBytes.done().buffer.asUint8List();
 
-      final rotation =
-      _controller!.description.lensDirection == CameraLensDirection.front
+      // Typical for Android front camera in portrait.
+      final rotation = _controller!.description.lensDirection == CameraLensDirection.front
           ? InputImageRotation.rotation270deg
           : InputImageRotation.rotation90deg;
 
@@ -553,20 +744,46 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _poseDetector.close();
-    _countdownTimer.cancel();
-    _gameTimer.cancel();
+    _countdownTimer?.cancel();
+    _gameTimer?.cancel();
     _feedbackTimer?.cancel();
+    _alignmentTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_isCameraInitialized) {
-      return const Scaffold(
+      return Scaffold(
+        backgroundColor: Colors.black,
         body: Center(
-          child: CircularProgressIndicator(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 20),
+              const Text(
+                "Initializing camera...",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                ),
+              ),
+              if (!_poseDetectionEnabled) ...[
+                const SizedBox(height: 20),
+                const Text(
+                  "Optimizing for your device...",
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       );
     }
@@ -574,7 +791,7 @@ class _GameplayScreenState extends State<GameplayScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Full screen camera preview with skeleton overlay
+          // Camera + Pose overlay aligned by shared image size and FittedBox scaling
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.cover,
@@ -584,21 +801,71 @@ class _GameplayScreenState extends State<GameplayScreen> {
                 child: Stack(
                   children: [
                     CameraPreview(_controller!),
-                    if (_customPaint != null)
-                      Transform.translate(
-                        offset: _offset,
-                        child: Transform.scale(
-                          scale: _minScale,
-                          child: _customPaint!,
-                        ),
-                      ),
+                    if (_customPaint != null) _customPaint!,
                   ],
                 ),
               ),
             ),
           ),
 
-          // Game UI overlay
+          // Alignment Guide
+          if (_showAlignmentGuide && _alignmentFeedback.isNotEmpty && _isGameStarted)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 200,
+                        height: 300,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _isPerfectlyAligned
+                                ? Colors.green.withOpacity(0.7)
+                                : Colors.orange.withOpacity(0.7),
+                            width: 3,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(
+                          child: Text(
+                            _alignmentFeedback,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        "Size: ${(_bodyScale * 100).toStringAsFixed(0)}%",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          shadows: [
+                            Shadow(
+                              blurRadius: 5,
+                              color: Colors.black,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // Game UI
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -611,12 +878,18 @@ class _GameplayScreenState extends State<GameplayScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             "Jumbo Hotdog Challenge",
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           Text(
@@ -624,6 +897,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             style: const TextStyle(
                               fontSize: 16,
                               color: Colors.white70,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -637,6 +916,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           AnimatedOpacity(
@@ -648,6 +933,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.cyanAccent,
+                                shadows: [
+                                  Shadow(
+                                    blurRadius: 5,
+                                    color: Colors.black,
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -668,6 +959,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                               fontSize: 100,
                               fontWeight: FontWeight.bold,
                               color: Colors.cyanAccent,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           const Text(
@@ -675,6 +972,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             style: TextStyle(
                               fontSize: 24,
                               color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -690,6 +993,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
                               color: Colors.cyanAccent,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -698,6 +1007,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                             textAlign: TextAlign.center,
                           ),
@@ -714,6 +1029,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                                 fontSize: 16,
                                 color: Colors.yellow,
                                 fontStyle: FontStyle.italic,
+                                shadows: [
+                                  Shadow(
+                                    blurRadius: 5,
+                                    color: Colors.black,
+                                  ),
+                                ],
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -724,6 +1045,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               color: Colors.white70,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -740,6 +1067,12 @@ class _GameplayScreenState extends State<GameplayScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -778,20 +1111,14 @@ class _GameplayScreenState extends State<GameplayScreen> {
 
 class PosePainter extends CustomPainter {
   final List<Pose> poses;
-  final Size imageSize;
+  final Size imageSize;     // intrinsic camera image size (portrait-corrected)
   final bool isFrontCamera;
-  final double scaleX;
-  final double scaleY;
-  final Offset offset;
 
   PosePainter(
       this.poses,
       this.imageSize,
-      this.isFrontCamera, {
-        required this.scaleX,
-        required this.scaleY,
-        required this.offset,
-      });
+      this.isFrontCamera,
+      );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -811,65 +1138,47 @@ class PosePainter extends CustomPainter {
 
     const jointRadius = 8.0;
 
+    Offset mapPoint(PoseLandmark? lm) {
+      if (lm == null) return Offset.zero;
+      final double x = isFrontCamera ? (imageSize.width - lm.x) : lm.x;
+      final double y = lm.y;
+      return Offset(x, y);
+    }
+
+    void drawBone(PoseLandmarkType a, PoseLandmarkType b) {
+      final p1 = poses.first.landmarks[a];
+      final p2 = poses.first.landmarks[b];
+      if (p1 == null || p2 == null) return;
+
+      final o1 = mapPoint(p1);
+      final o2 = mapPoint(p2);
+      canvas.drawLine(o1, o2, linePaint);
+    }
+
     for (final pose in poses) {
-      // Helper function to get properly scaled and mirrored offset
-      Offset getOffset(PoseLandmark? landmark) {
-        if (landmark == null) return Offset.zero;
-
-        double x = landmark.x;
-        double y = landmark.y;
-
-        // Mirror only the x-coordinate for front camera
-        if (isFrontCamera) {
-          x = imageSize.width - x;
-        }
-
-        // Adjust position to be more top and right
-        return Offset(
-          x * 1.15,
-          y * 0.8,
-        );
-      }
-
-      void drawLine(PoseLandmarkType type1, PoseLandmarkType type2) {
-        final landmark1 = pose.landmarks[type1];
-        final landmark2 = pose.landmarks[type2];
-        if (landmark1 == null || landmark2 == null) return;
-
-        final offset1 = getOffset(landmark1);
-        final offset2 = getOffset(landmark2);
-
-        canvas.drawLine(offset1, offset2, linePaint);
-      }
-
-      // Draw all the connections first
       // Torso
-      drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
-      drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
-      drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
-      drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
+      drawBone(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
+      drawBone(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
+      drawBone(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
+      drawBone(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
 
-      // Left arm
-      drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
-      drawLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
+      // Arms
+      drawBone(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
+      drawBone(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
+      drawBone(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
+      drawBone(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
 
-      // Right arm
-      drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
-      drawLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
+      // Legs
+      drawBone(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
+      drawBone(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
+      drawBone(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
+      drawBone(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
 
-      // Left legs
-      drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
-      drawLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
-
-      // Right leg
-      drawLine(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
-      drawLine(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
-
-      // Draw all joints after connections so they appear on top
-      for (final landmark in pose.landmarks.values) {
-        final offset = getOffset(landmark);
-        canvas.drawCircle(offset, jointRadius, jointPaint);
-        canvas.drawCircle(offset, jointRadius, jointStrokePaint);
+      // Joints
+      for (final lm in pose.landmarks.values) {
+        final o = mapPoint(lm);
+        canvas.drawCircle(o, jointRadius, jointPaint);
+        canvas.drawCircle(o, jointRadius, jointStrokePaint);
       }
     }
   }

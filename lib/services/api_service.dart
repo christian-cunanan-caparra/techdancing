@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "http://192.168.1.5/dancing";
+  static const String baseUrl = "http://192.168.1.113/dancing";
 
   // LOGIN
   static Future<Map<String, dynamic>> login(String email, String password) async {
@@ -18,9 +19,35 @@ class ApiService {
 
 
 
-  
+//LEADERBOARD
 
+  static Future<List<dynamic>> getLeaderboard(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/leaderboard.php"),
+        body: jsonEncode({'user_id': userId}),
+        headers: {'Content-Type': 'application/json'},
+      );
 
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        // Handle both array and error object responses
+        if (decoded is List) {
+          return decoded;
+        } else if (decoded is Map && decoded.containsKey('error')) {
+          throw Exception(decoded['error']);
+        } else {
+          throw Exception('Unexpected response format');
+        }
+      } else {
+        throw Exception('Failed to load leaderboard. Status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Leaderboard error: $e');
+      rethrow;
+    }
+  }
 
 
 

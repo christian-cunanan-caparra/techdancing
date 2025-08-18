@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+
 import 'login_screen.dart';
+import 'main_menu_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   @override
@@ -20,7 +24,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 2),
+      duration: const Duration(seconds: 2),
     );
 
     _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -32,7 +36,7 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 0.5),
+      begin: const Offset(0, 0.5),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _controller,
@@ -46,11 +50,27 @@ class _SplashScreenState extends State<SplashScreen>
 
     _controller.forward();
 
-    Future.delayed(Duration(seconds: 3), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => LoginScreen()),
-      );
+    // ⏳ Wait 3s then check login state
+    Future.delayed(const Duration(seconds: 3), () async {
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user');
+
+      if (!mounted) return;
+
+      if (userData != null) {
+        // ✅ user logged in → parse JSON and go to MainMenu
+        final user = jsonDecode(userData);
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => MainMenuScreen(user: user)),
+        );
+      } else {
+        // ❌ no session → go to Login
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
     });
   }
 
@@ -79,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
                       Colors.black,
                       _colorAnimation.value ?? Colors.deepPurpleAccent,
                     ],
-                    stops: [0.1, 1.0],
+                    stops: const [0.1, 1.0],
                   ),
                 ),
               );
@@ -119,10 +139,10 @@ class _SplashScreenState extends State<SplashScreen>
                     children: [
                       // App icon/logo
                       Container(
-                        padding: EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: LinearGradient(
+                          gradient: const LinearGradient(
                             colors: [Colors.purpleAccent, Colors.deepPurple],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
@@ -135,17 +155,17 @@ class _SplashScreenState extends State<SplashScreen>
                             ),
                           ],
                         ),
-                        child: Icon(
+                        child: const Icon(
                           Icons.music_note,
                           size: 60,
                           color: Colors.white,
                         ),
                       ),
 
-                      SizedBox(height: 30),
+                      const SizedBox(height: 30),
 
                       // App title
-                      Text(
+                      const Text(
                         "BEAT BREAKER",
                         style: TextStyle(
                           fontSize: 36,
@@ -162,10 +182,10 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
 
-                      SizedBox(height: 10),
+                      const SizedBox(height: 10),
 
                       // Tagline
-                      Text(
+                      const Text(
                         "Feel the rhythm",
                         style: TextStyle(
                           fontSize: 16,
@@ -174,14 +194,14 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
 
-                      SizedBox(height: 40),
+                      const SizedBox(height: 40),
 
                       // Loading indicator
                       SizedBox(
                         width: 100,
                         child: LinearProgressIndicator(
                           backgroundColor: Colors.purple[900],
-                          valueColor: AlwaysStoppedAnimation<Color>(
+                          valueColor: const AlwaysStoppedAnimation<Color>(
                             Colors.purpleAccent,
                           ),
                           minHeight: 2,

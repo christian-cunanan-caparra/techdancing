@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import 'main_menu_screen.dart';
 import 'register_screen.dart';
@@ -27,6 +29,11 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => isLoading = false);
 
     if (result['status'] == 'success') {
+      // ✅ Save login session
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('user', jsonEncode(result['user']));
+
       Navigator.of(context).pushReplacement(_createFadeRoute(
         MainMenuScreen(user: result['user']),
       ));
