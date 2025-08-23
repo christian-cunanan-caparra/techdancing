@@ -1,3 +1,4 @@
+// DELETE THIS ENTIRE SECTION FROM gameplay_screen.dart
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
@@ -19,8 +20,13 @@ class ApiService {
 
 
 
-//LEADERBOARD
 
+
+
+
+
+
+  // LEADERBOARD
   static Future<List<dynamic>> getLeaderboard(String userId) async {
     try {
       final response = await http.post(
@@ -49,12 +55,23 @@ class ApiService {
     }
   }
 
+  // UPDATE USER LEVEL
+  static Future<Map<String, dynamic>> updateUserLevel(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/update_level.php"),
+        body: jsonEncode({
+          'user_id': userId,
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
 
-
-
-
-
-
+      return jsonDecode(response.body);
+    } catch (e) {
+      debugPrint("Error updating level: $e");
+      return {'status': 'error', 'message': 'Network error'};
+    }
+  }
 
   // REGISTER
   static Future<Map<String, dynamic>> register(String name, String email, String password) async {

@@ -1,14 +1,16 @@
+// game_waiting_screen.dart (updated)
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'select_dance_screen.dart';
 import 'gameplay_screen.dart';
+import '../services/music_service.dart'; // Add this import
 
 class GameWaitingScreen extends StatefulWidget {
   final Map user;
   final String roomCode;
   final bool isHost;
-//gg
+
   const GameWaitingScreen({
     super.key,
     required this.user,
@@ -21,15 +23,19 @@ class GameWaitingScreen extends StatefulWidget {
 }
 
 class _GameWaitingScreenState extends State<GameWaitingScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Timer? _timer;
   late AnimationController _controller;
   late Animation<double> _pulseAnimation;
+  final MusicService _musicService = MusicService();
+  bool _isMuted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startPollingRoom();
+    _initializeMusic();
 
     _controller = AnimationController(
       vsync: this,
@@ -42,10 +48,28 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _musicService.resumeMusic(screenName: 'waiting');
+    } else if (state == AppLifecycleState.paused) {
+      _musicService.pauseMusic();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _initializeMusic() async {
+    await _musicService.initialize();
+    _musicService.playMenuMusic(screenName: 'waiting');
+    setState(() {
+      _isMuted = _musicService.isMuted;
+    });
   }
 
   void _startPollingRoom() {
@@ -59,6 +83,8 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
 
         if (widget.isHost && player2Id != null) {
           _timer?.cancel();
+          // Stop music before going to select dance screen
+          _musicService.pauseMusic(rememberToResume: false);
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -72,17 +98,27 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
 
         if (!widget.isHost && danceId != null) {
           _timer?.cancel();
+          // Stop music before going to gameplay screen
+          _musicService.pauseMusic(rememberToResume: false);
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (_) => GameplayScreen(
                 danceId: int.parse(danceId.toString()),
                 roomCode: widget.roomCode,
+                userId: widget.user['id'].toString(),
               ),
             ),
           );
         }
       }
+    });
+  }
+
+  void _toggleMute() {
+    _musicService.toggleMute();
+    setState(() {
+      _isMuted = _musicService.isMuted;
     });
   }
 
@@ -95,6 +131,21 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isMuted ? Icons.volume_off : Icons.volume_up,
+              color: Colors.white,
+            ),
+            onPressed: _toggleMute,
+          ),
+        ],
       ),
       body: Container(
         width: double.infinity,

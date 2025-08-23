@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import 'main_menu_screen.dart';
 import 'register_screen.dart';
 
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -13,34 +14,122 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
   bool isLoading = false;
+  bool _obscurePassword = true;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
-  void loginUser() async {
-    setState(() => isLoading = true);
+  @override
+  void initState() {
+    super.initState();
 
-    final result = await ApiService.login(
-      emailController.text.trim(),
-      passwordController.text.trim(),
+    // Initialize animation controller
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
     );
 
-    setState(() => isLoading = false);
+    // Set up animations
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
+      ),
+    );
 
-    if (result['status'] == 'success') {
-      // ✅ Save login session
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.3, 1.0, curve: Curves.easeOut),
+      ),
+    );
+
+    // Start animation
+    _animationController.forward();
+
+    // Check for saved credentials
+    _loadSavedCredentials();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('user', jsonEncode(result['user']));
+      final savedEmail = prefs.getString('savedEmail');
+      final rememberMe = prefs.getBool('rememberMe') ?? false;
 
-      Navigator.of(context).pushReplacement(_createFadeRoute(
-        MainMenuScreen(user: result['user']),
-      ));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Login failed')),
+      if (rememberMe && savedEmail != null) {
+        setState(() {
+          emailController.text = savedEmail;
+        });
+      }
+    } catch (e) {
+      // Silent error - don't disrupt user experience for saved credentials
+    }
+  }
+
+  void loginUser() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => isLoading = true);
+
+    try {
+      final result = await ApiService.login(
+        emailController.text.trim(),
+        passwordController.text.trim(),
       );
+
+      if (result['status'] == 'success') {
+        // ✅ Save login session
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        await prefs.setString('user', jsonEncode(result['user']));
+
+        // Save email if remember me is enabled
+        await prefs.setBool('rememberMe', true);
+        await prefs.setString('savedEmail', emailController.text.trim());
+
+        Navigator.of(context).pushReplacement(_createFadeRoute(
+          MainMenuScreen(user: result['user']),
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Login failed'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Network error. Please try again.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -62,6 +151,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required String hint,
     required TextEditingController controller,
     bool obscureText = false,
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
   }) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -83,18 +174,33 @@ class _LoginScreenState extends State<LoginScreen> {
               Icon(icon, color: Colors.cyanAccent),
               const SizedBox(width: 12),
               Expanded(
-                child: TextField(
+                child: TextFormField(
                   controller: controller,
-                  obscureText: obscureText,
+                  obscureText: obscureText && _obscurePassword,
                   style: const TextStyle(color: Colors.cyanAccent),
                   cursorColor: Colors.pinkAccent,
+                  keyboardType: keyboardType,
+                  validator: validator,
                   decoration: InputDecoration(
                     hintText: hint,
                     hintStyle: const TextStyle(color: Colors.cyanAccent),
                     border: InputBorder.none,
+                    errorStyle: const TextStyle(color: Colors.pinkAccent),
                   ),
                 ),
               ),
+              if (obscureText)
+                IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                    color: Colors.cyanAccent.withOpacity(0.7),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                ),
               const SizedBox(width: 12),
             ],
           ),
@@ -111,78 +217,176 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: SingleChildScrollView(
-            child: Column(
-              children: [
-                const SizedBox(height: 50),
-                const Text(
-                  "BEAT\nBREAKER",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  "Feel the rhythm!",
-                  style: TextStyle(color: Colors.white70, fontSize: 16),
-                ),
-                const SizedBox(height: 40),
-                _buildTextField(
-                  icon: Icons.person,
-                  hint: 'USERNAME',
-                  controller: emailController,
-                ),
-                _buildTextField(
-                  icon: Icons.lock,
-                  hint: 'PASSWORD',
-                  controller: passwordController,
-                  obscureText: true,
-                ),
-                const SizedBox(height: 30),
-                Center(
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : loginUser,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.pinkAccent,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 60,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      elevation: 8,
-                    ),
-                    child: Text(
-                      isLoading ? 'Logging in...' : 'Login',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pushReplacement(
-                        _createFadeRoute(const RegisterScreen()),
-                      );
-                    },
+            child: Form(
+              key: _formKey,
+              child: Column(
+                children: [
+                  const SizedBox(height: 30),
+                  FadeTransition(
+                    opacity: _fadeAnimation,
                     child: const Text(
-                      "Create new account",
+                      "BEAT\nBREAKER",
+                      textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.cyanAccent,
-                        fontSize: 14,
+                        color: Colors.white,
+                        fontSize: 42,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 3,
+                        shadows: [
+                          Shadow(
+                            blurRadius: 10.0,
+                            color: Colors.pinkAccent,
+                            offset: Offset(0, 0),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                )
-              ],
+                  const SizedBox(height: 10),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: const Text(
+                      "Feel the rhythm!",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 16,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: _buildTextField(
+                      icon: Icons.email,
+                      hint: 'EMAIL',
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your email';
+                        }
+                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: _buildTextField(
+                      icon: Icons.lock,
+                      hint: 'PASSWORD',
+                      controller: passwordController,
+                      obscureText: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your password';
+                        }
+                        if (value.length < 6) {
+                          return 'Password must be at least 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              _createFadeRoute(const () as Widget),
+                            );
+                          },
+                          child: const Text(
+                            "Forgot Password?",
+                            style: TextStyle(
+                              color: Colors.cyanAccent,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: Center(
+                      child: isLoading
+                          ? const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
+                      )
+                          : ElevatedButton(
+                        onPressed: loginUser,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pinkAccent,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 60,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          elevation: 8,
+                          shadowColor: Colors.pinkAccent.withOpacity(0.5),
+                        ),
+                        child: const Text(
+                          'Login',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          "Don't have an account? ",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.of(context).pushReplacement(
+                              _createFadeRoute(const RegisterScreen()),
+                            );
+                          },
+                          child: const Text(
+                            "Sign Up",
+                            style: TextStyle(
+                              color: Colors.cyanAccent,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  const SizedBox(height: 15),
+                  SlideTransition(
+                    position: _slideAnimation,
+
+                  ),
+                ],
+              ),
             ),
           ),
         ),

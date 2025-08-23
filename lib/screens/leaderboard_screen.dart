@@ -241,7 +241,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'LEADERBOARD',
+          'RANKING',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,

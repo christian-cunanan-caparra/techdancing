@@ -5,16 +5,21 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
+import '../services/api_service.dart';
+import '../services/music_service.dart';
+
 typedef ScoreFn = void Function(Pose pose);
 
 class GameplayScreen extends StatefulWidget {
   final int danceId;
   final String roomCode;
+  final String userId;
 
   const GameplayScreen({
     super.key,
     required this.danceId,
     required this.roomCode,
+    required this.userId,
   });
 
   @override
@@ -76,6 +81,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _initializeCamera();
     _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
     _loadDanceSteps();
+
+    // Pause menu music when entering gameplay
+    MusicService().pauseMusic(rememberToResume: false);
     _startCountdown();
   }
 
@@ -95,36 +103,44 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   void _loadDanceSteps() {
     _danceSteps = [
       {
-        'name': 'Sumabay Ka',
-        'description': 'Arms swaying side to side with small steps',
+        'name': 'Intro Sway',
+        'description': 'Gentle side-to-side sway with arms',
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
-        'scoringLogic': _scoreSumabayKa as ScoreFn,
+        'scoringLogic': _scoreIntroSway as ScoreFn,
       },
       {
         'name': 'Chacha Step',
-        'description': 'Side chacha steps with arm swings',
+        'description': 'Side chacha with arm movements',
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
         'scoringLogic': _scoreChachaStep as ScoreFn,
       },
       {
-        'name': 'Jumbo Hotdog Pose',
-        'description': 'Arms wide open then pointing forward',
-        'duration': 16,
-        'originalDuration': 16,
-        'lyrics': '[jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?]',
-        'scoringLogic': _scoreJumboHotdogPose as ScoreFn,
+        'name': 'Jumbo Pose',
+        'description': 'Arms wide open, then pointing forward',
+        'duration': 8,
+        'originalDuration': 8,
+        'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
+        'scoringLogic': _scoreJumboPose as ScoreFn,
       },
       {
-        'name': 'Final Pose',
-        'description': 'Hands on hips with confident stance',
+        'name': 'Hotdog Point',
+        'description': 'Pointing forward with alternating arms',
         'duration': 8,
         'originalDuration': 8,
         'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
-        'scoringLogic': _scoreFinalPose as ScoreFn,
+        'scoringLogic': _scoreHotdogPoint as ScoreFn,
+      },
+      {
+        'name': 'Final Celebration',
+        'description': 'Hands on hips with confident stance',
+        'duration': 8,
+        'originalDuration': 8,
+        'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
+        'scoringLogic': _scoreFinalCelebration as ScoreFn,
       },
     ];
     _stepScores = List.filled(_danceSteps.length, 0);
@@ -146,9 +162,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return 0.3;
   }
 
-  // ==================== Scoring functions ====================
+  // ==================== Updated Scoring functions ====================
 
-  void _scoreSumabayKa(Pose pose) {
+  void _scoreIntroSway(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
       _poseMatched = false;
@@ -167,20 +183,24 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    final leftArmUp = leftWrist.y < leftShoulder.y;
-    final rightArmUp = rightWrist.y < rightShoulder.y;
+    // Check for gentle swaying motion (arms moving together)
+    final leftArmHeight = (leftWrist.y - leftShoulder.y).abs();
+    final rightArmHeight = (rightWrist.y - rightShoulder.y).abs();
 
-    if (leftArmUp != rightArmUp) {
+    // Both arms should be at similar height for the sway
+    final heightDifference = (leftArmHeight - rightArmHeight).abs();
+
+    if (heightDifference < 50 && leftArmHeight > 50 && rightArmHeight > 50) {
       if (!_poseMatched) {
         final base = 100 + Random().nextInt(50);
         final score = (base * m).round();
         _addToScore(score);
-        _updateFeedback("Perfect sway! +$score", Colors.green);
+        _updateFeedback("Nice sway! +$score", Colors.green);
         _consecutiveGoodPoses++;
         _poseMatched = true;
       }
     } else {
-      _updateFeedback("Alternate your arms!", Colors.orange);
+      _updateFeedback("Sway arms together!", Colors.orange);
       _consecutiveGoodPoses = 0;
       _poseMatched = false;
     }
@@ -194,39 +214,38 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
-    final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
+    final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
+    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
+    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
 
-    if (leftElbow == null || rightElbow == null || leftShoulder == null || rightShoulder == null || leftWrist == null || rightWrist == null) {
+    if (leftAnkle == null || rightAnkle == null || leftHip == null || rightHip == null) {
       _poseMatched = false;
-      _updateFeedback("Keep elbows & wrists visible!", Colors.orange);
+      _updateFeedback("Show your feet!", Colors.orange);
       return;
     }
 
-    final leftArmAngle = _calculateAngle(leftShoulder, leftElbow, leftWrist);
-    final rightArmAngle = _calculateAngle(rightShoulder, rightElbow, rightWrist);
+    // Check for chacha step (feet wider than hips)
+    final hipWidth = (leftHip.x - rightHip.x).abs();
+    final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
 
-    if ((leftArmAngle > 60 && leftArmAngle < 120) || (rightArmAngle > 60 && rightArmAngle < 120)) {
+    if (ankleWidth > hipWidth * 1.2) {
       if (!_poseMatched) {
         final base = 150 + Random().nextInt(50);
         final score = (base * m).round();
         _addToScore(score);
-        _updateFeedback("Great arm swing! +$score", Colors.green);
+        _updateFeedback("Great chacha! +$score", Colors.green);
         _consecutiveGoodPoses++;
         _poseMatched = true;
       }
     } else {
-      _updateFeedback("Bend your arms more!", Colors.orange);
+      _updateFeedback("Wider steps!", Colors.orange);
       _consecutiveGoodPoses = 0;
       _poseMatched = false;
     }
   }
 
-  void _scoreJumboHotdogPose(Pose pose) {
+  void _scoreJumboPose(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
       _poseMatched = false;
@@ -245,28 +264,68 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    final armsWide = (leftWrist.x < leftShoulder.x - 50 && rightWrist.x > rightShoulder.x + 50) ||
-        (leftWrist.x > leftShoulder.x + 50 && rightWrist.x < rightShoulder.x - 50);
-
+    // Check for "Jumbo" pose (arms wide and up)
+    final leftArmSpread = (leftWrist.x - leftShoulder.x).abs();
+    final rightArmSpread = (rightWrist.x - rightShoulder.x).abs();
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
 
-    if (armsWide && armsUp) {
+    if (armsUp && leftArmSpread > 50 && rightArmSpread > 50) {
       if (!_poseMatched) {
         final base = 200 + Random().nextInt(100);
         final score = (base * m).round();
         _addToScore(score);
-        _updateFeedback("JUMBO HOTDOG! +$score", Colors.green);
+        _updateFeedback("JUMBO! +$score", Colors.green);
         _consecutiveGoodPoses++;
         _poseMatched = true;
       }
     } else {
-      _updateFeedback("Arms up and wide!", Colors.orange);
+      _updateFeedback("Arms wide and up!", Colors.orange);
       _consecutiveGoodPoses = 0;
       _poseMatched = false;
     }
   }
 
-  void _scoreFinalPose(Pose pose) {
+  void _scoreHotdogPoint(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
+    final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
+
+    if (leftWrist == null || rightWrist == null || leftElbow == null || rightElbow == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your arms!", Colors.orange);
+      return;
+    }
+
+    // Check for pointing motion (one arm extended forward)
+    final leftArmExtended = (leftWrist.x - leftElbow.x).abs() > 50;
+    final rightArmExtended = (rightWrist.x - rightElbow.x).abs() > 50;
+
+    // Only one arm should be extended at a time
+    if (leftArmExtended != rightArmExtended) {
+      if (!_poseMatched) {
+        final base = 175 + Random().nextInt(75);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Perfect point! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Point with one arm!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreFinalCelebration(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
       _poseMatched = false;
@@ -285,6 +344,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
+    // Check for hands on hips celebration pose
     final leftHandOnHip = _distance(leftWrist, leftHip) < 50;
     final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
 
@@ -293,7 +353,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         final base = 250 + Random().nextInt(150);
         final score = (base * m).round();
         _addToScore(score);
-        _updateFeedback("Perfect final pose! +$score", Colors.green);
+        _updateFeedback("Perfect finish! +$score", Colors.green);
         _consecutiveGoodPoses++;
         _poseMatched = true;
       }
@@ -376,6 +436,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _startGame() {
+    // Play the jumbo hotdog music
+    MusicService().playGameMusic();
+
     setState(() {
       _isGameStarted = true;
       _currentStep = 0;
@@ -424,10 +487,31 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
+  Future<void> _updateUserLevel() async {
+    try {
+      final result = await ApiService.updateUserLevel(widget.userId);
+
+      if (result['status'] != 'success') {
+        debugPrint("Failed to update level: ${result['message']}");
+      } else {
+        debugPrint("Level updated successfully to: ${result['new_level']}");
+      }
+    } catch (e) {
+      debugPrint("Error updating level: $e");
+    }
+  }
+
   void _endGame() {
     _gameTimer?.cancel();
+
+    // Stop the game music
+    MusicService().stopMusic();
+
     final maxPossibleScore = _danceSteps.length * 1000;
     final percentage = maxPossibleScore == 0 ? 0 : (_totalScore / maxPossibleScore * 100).round();
+
+    // Check if user should level up (70% or higher)
+    final bool shouldLevelUp = percentage >= 50;
 
     String resultText;
     Color resultColor;
@@ -444,6 +528,11 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     } else {
       resultText = "TRY AGAIN ($percentage%)";
       resultColor = Colors.orange;
+    }
+
+    // Call API to update user level if they should level up
+    if (shouldLevelUp) {
+      _updateUserLevel();
     }
 
     showDialog(
@@ -467,6 +556,17 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                 fontWeight: FontWeight.bold,
               ),
             ),
+            if (shouldLevelUp) ...[
+              const SizedBox(height: 10),
+              const Text(
+                "🎉 LEVEL UP! 🎉",
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             ..._danceSteps.asMap().entries.map((entry) {
               final idx = entry.key;
@@ -486,12 +586,17 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+              // Resume background music when returning to menu
+              MusicService().playMenuMusic(screenName: 'menu');
+              Navigator.pop(context); // Go back to previous screen
+            },
             child: const Text("OK"),
           ),
         ],
       ),
-    ).then((_) => Navigator.pop(context));
+    );
   }
 
   Future<void> _initializeCamera() async {
@@ -751,6 +856,12 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _gameTimer?.cancel();
     _feedbackTimer?.cancel();
     _alignmentTimer?.cancel();
+
+    // Stop game music when screen is disposed
+    if (_isGameStarted) {
+      MusicService().stopMusic();
+    }
+
     super.dispose();
   }
 
