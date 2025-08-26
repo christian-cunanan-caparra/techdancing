@@ -1,4 +1,3 @@
-// main_menu_screen.dart (XP removed)
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
