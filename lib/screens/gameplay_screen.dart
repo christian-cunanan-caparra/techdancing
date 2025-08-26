@@ -887,16 +887,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     if (percentage >= 90) {
       resultText = "PERFECT! ($percentage%)";
-      resultColor = Colors.cyanAccent;
+      resultColor = Colors.deepOrange;
     } else if (percentage >= 70) {
       resultText = "VERY GOOD! ($percentage%)";
       resultColor = Colors.green;
     } else if (percentage >= 50) {
       resultText = "GOOD ($percentage%)";
-      resultColor = Colors.yellow;
+      resultColor = Colors.blue;
     } else {
       resultText = "TRY AGAIN ($percentage%)";
-      resultColor = Colors.orange;
+      resultColor = Colors.red;
     }
 
     // Call API to update user level if they should level up
@@ -931,7 +931,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                 "🎉 LEVEL UP! 🎉",
                 style: TextStyle(
                   fontSize: 18,
-                  color: Colors.green,
+                  color: Colors.blue,
                   fontWeight: FontWeight.bold,
                 ),
               ),
