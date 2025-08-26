@@ -44,7 +44,7 @@ class MusicService {
 
     try {
       await _player.stop(); // Stop any current music
-      await _player.play(AssetSource('audio/jumbo.mp3'));
+      await _player.play(AssetSource('audio/jumbo1.mp3'));
       _isPlaying = true;
       _shouldPlayOnResume = false; // Don't resume background music automatically
       _currentScreen = 'gameplay';

@@ -101,48 +101,127 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _loadDanceSteps() {
-    _danceSteps = [
-      {
-        'name': 'Intro Sway',
-        'description': 'Gentle side-to-side sway with arms',
-        'duration': 8,
-        'originalDuration': 8,
-        'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
-        'scoringLogic': _scoreIntroSway as ScoreFn,
-      },
-      {
-        'name': 'Chacha Step',
-        'description': 'Side chacha with arm movements',
-        'duration': 8,
-        'originalDuration': 8,
-        'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
-        'scoringLogic': _scoreChachaStep as ScoreFn,
-      },
-      {
-        'name': 'Jumbo Pose',
-        'description': 'Arms wide open, then pointing forward',
-        'duration': 8,
-        'originalDuration': 8,
-        'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
-        'scoringLogic': _scoreJumboPose as ScoreFn,
-      },
-      {
-        'name': 'Hotdog Point',
-        'description': 'Pointing forward with alternating arms',
-        'duration': 8,
-        'originalDuration': 8,
-        'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
-        'scoringLogic': _scoreHotdogPoint as ScoreFn,
-      },
-      {
-        'name': 'Final Celebration',
-        'description': 'Hands on hips with confident stance',
-        'duration': 8,
-        'originalDuration': 8,
-        'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
-        'scoringLogic': _scoreFinalCelebration as ScoreFn,
-      },
-    ];
+    switch (widget.danceId) {
+      case 1: // JUMBO CHACHA
+        _danceSteps = [
+          {
+            'name': 'Intro Sway',
+            'description': 'Gentle side-to-side sway with arms',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
+            'scoringLogic': _scoreIntroSway as ScoreFn,
+          },
+          {
+            'name': 'Chacha Step',
+            'description': 'Side chacha with arm movements',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
+            'scoringLogic': _scoreChachaStep as ScoreFn,
+          },
+          {
+            'name': 'Jumbo Pose',
+            'description': 'Arms wide open, then pointing forward',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
+            'scoringLogic': _scoreJumboPose as ScoreFn,
+          },
+          {
+            'name': 'Hotdog Point',
+            'description': 'Pointing forward with alternating arms',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
+            'scoringLogic': _scoreHotdogPoint as ScoreFn,
+          },
+          {
+            'name': 'Final Celebration',
+            'description': 'Hands on hips with confident stance',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
+            'scoringLogic': _scoreFinalCelebration as ScoreFn,
+          },
+        ];
+        break;
+
+      case 2: // PAA TUHOD BALIKAT ULO
+        _danceSteps = [
+          {
+            'name': 'Paa (Feet)',
+            'description': 'Touch your feet with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Paa, paa, paa\nHawakan ang paa',
+            'scoringLogic': _scorePaaStep as ScoreFn,
+          },
+          {
+            'name': 'Tuhod (Knees)',
+            'description': 'Touch your knees with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Tuhod, tuhod, tuhod\nHawakan ang tuhod',
+            'scoringLogic': _scoreTuhodStep as ScoreFn,
+          },
+          {
+            'name': 'Balikat (Shoulders)',
+            'description': 'Touch your shoulders with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Balikat, balikat, balikat\nHawakan ang balikat',
+            'scoringLogic': _scoreBalikatStep as ScoreFn,
+          },
+          {
+            'name': 'Ulo (Head)',
+            'description': 'Touch your head with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Ulo, ulo, ulo\nHawakan ang ulo',
+            'scoringLogic': _scoreUloStep as ScoreFn,
+          },
+          {
+            'name': 'Fast Sequence 1',
+            'description': 'Quick: Paa, Tuhod, Balikat, Ulo!',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Paa, tuhod, balikat, ulo!',
+            'scoringLogic': _scoreFastSequence as ScoreFn,
+          },
+          {
+            'name': 'Fast Sequence 2',
+            'description': 'Faster: Paa, Tuhod, Balikat, Ulo!',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Paa, tuhod, balikat, ulo!',
+            'scoringLogic': _scoreFastSequence as ScoreFn,
+          },
+          {
+            'name': 'Final Pose',
+            'description': 'End with hands up celebration',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Tapos na!',
+            'scoringLogic': _scoreFinalPose as ScoreFn,
+          },
+        ];
+        break;
+
+      default: // Default to JUMBO CHACHA
+        _danceSteps = [
+          {
+            'name': 'Intro Sway',
+            'description': 'Gentle side-to-side sway with arms',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
+            'scoringLogic': _scoreIntroSway as ScoreFn,
+          },
+          // ... rest of JUMBO CHACHA steps
+        ];
+    }
+
     _stepScores = List.filled(_danceSteps.length, 0);
   }
 
@@ -163,6 +242,293 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   // ==================== Updated Scoring functions ====================
+
+  // ==================== PAA TUHOD BALIKAT ULO Scoring functions ====================
+
+  void _scorePaaStep(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
+    final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
+
+    if (leftWrist == null || rightWrist == null || leftAnkle == null || rightAnkle == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your feet and hands!", Colors.orange);
+      return;
+    }
+
+    // Check if both hands are touching or near feet
+    final leftHandNearFoot = _distance(leftWrist, leftAnkle) < 60;
+    final rightHandNearFoot = _distance(rightWrist, rightAnkle) < 60;
+    final handsLow = leftWrist.y > leftAnkle.y - 30 && rightWrist.y > rightAnkle.y - 30;
+
+    if ((leftHandNearFoot || rightHandNearFoot) && handsLow) {
+      if (!_poseMatched) {
+        final base = 120 + Random().nextInt(40);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Paa! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Touch your feet!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreTuhodStep(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
+    final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
+
+    if (leftWrist == null || rightWrist == null || leftKnee == null || rightKnee == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your knees and hands!", Colors.orange);
+      return;
+    }
+
+    // Check if both hands are touching or near knees
+    final leftHandNearKnee = _distance(leftWrist, leftKnee) < 50;
+    final rightHandNearKnee = _distance(rightWrist, rightKnee) < 50;
+    final handsAtKneeLevel = leftWrist.y > leftKnee.y - 20 && rightWrist.y > rightKnee.y - 20;
+
+    if ((leftHandNearKnee || rightHandNearKnee) && handsAtKneeLevel) {
+      if (!_poseMatched) {
+        final base = 120 + Random().nextInt(40);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Tuhod! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Touch your knees!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreBalikatStep(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+
+    if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your shoulders and hands!", Colors.orange);
+      return;
+    }
+
+    // Check if both hands are touching or near shoulders
+    final leftHandNearShoulder = _distance(leftWrist, leftShoulder) < 40;
+    final rightHandNearShoulder = _distance(rightWrist, rightShoulder) < 40;
+    final handsAtShoulderLevel = leftWrist.y < leftShoulder.y + 30 && rightWrist.y < rightShoulder.y + 30;
+
+    if ((leftHandNearShoulder || rightHandNearShoulder) && handsAtShoulderLevel) {
+      if (!_poseMatched) {
+        final base = 120 + Random().nextInt(40);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Balikat! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Touch your shoulders!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreUloStep(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final nose = pose.landmarks[PoseLandmarkType.nose];
+
+    if (leftWrist == null || rightWrist == null || nose == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your head and hands!", Colors.orange);
+      return;
+    }
+
+    // Check if both hands are touching or near head
+    final leftHandNearHead = _distance(leftWrist, nose) < 80;
+    final rightHandNearHead = _distance(rightWrist, nose) < 80;
+    final handsHigh = leftWrist.y < nose.y + 50 && rightWrist.y < nose.y + 50;
+
+    if ((leftHandNearHead || rightHandNearHead) && handsHigh) {
+      if (!_poseMatched) {
+        final base = 120 + Random().nextInt(40);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Ulo! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Touch your head!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreFastSequence(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
+    final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
+    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+    final nose = pose.landmarks[PoseLandmarkType.nose];
+
+    if (leftWrist == null || rightWrist == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your hands!", Colors.orange);
+      return;
+    }
+
+    // Check which body part the hands are closest to
+    double minDistance = double.infinity;
+    String currentPosition = "";
+
+    if (leftAnkle != null) {
+      final dist = _distance(leftWrist, leftAnkle);
+      if (dist < minDistance) {
+        minDistance = dist;
+        currentPosition = "paa";
+      }
+    }
+
+    if (leftKnee != null) {
+      final dist = _distance(leftWrist, leftKnee);
+      if (dist < minDistance) {
+        minDistance = dist;
+        currentPosition = "tuhod";
+      }
+    }
+
+    if (leftShoulder != null) {
+      final dist = _distance(leftWrist, leftShoulder);
+      if (dist < minDistance) {
+        minDistance = dist;
+        currentPosition = "balikat";
+      }
+    }
+
+    if (nose != null) {
+      final dist = _distance(leftWrist, nose);
+      if (dist < minDistance && dist < 100) {
+        minDistance = dist;
+        currentPosition = "ulo";
+      }
+    }
+
+    // Award points for being in any position during fast sequence
+    if (minDistance < 100 && currentPosition.isNotEmpty) {
+      if (!_poseMatched) {
+        final base = 200 + Random().nextInt(50);
+        final score = (base * m).round();
+        _addToScore(score);
+
+        switch (currentPosition) {
+          case "paa":
+            _updateFeedback("Paa! +$score", Colors.green);
+            break;
+          case "tuhod":
+            _updateFeedback("Tuhod! +$score", Colors.green);
+            break;
+          case "balikat":
+            _updateFeedback("Balikat! +$score", Colors.green);
+            break;
+          case "ulo":
+            _updateFeedback("Ulo! +$score", Colors.green);
+            break;
+        }
+
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Faster! Paa, Tuhod, Balikat, Ulo!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
+  void _scoreFinalPose(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final nose = pose.landmarks[PoseLandmarkType.nose];
+
+    if (leftWrist == null || rightWrist == null || nose == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your hands!", Colors.orange);
+      return;
+    }
+
+    // Check for celebration pose (hands above head)
+    final handsHigh = leftWrist.y < nose.y && rightWrist.y < nose.y;
+
+    if (handsHigh) {
+      if (!_poseMatched) {
+        final base = 300 + Random().nextInt(100);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Perfect finish! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Hands up celebration!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
 
   void _scoreIntroSway(Pose pose) {
     final m = _alignmentMultiplier;
@@ -436,8 +802,11 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _startGame() {
-    // Play the jumbo hotdog music
-    MusicService().playGameMusic();
+    // Play the appropriate music based on danceId
+    switch (widget.danceId) {
+      case 1: // JUMBO CHACHA
+        MusicService().playGameMusic(); // Existing Jumbo Hotdog music
+    }
 
     setState(() {
       _isGameStarted = true;
