@@ -220,7 +220,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   Widget build(BuildContext context) {
     String name = widget.user['name'] ?? '';
     String level = widget.user['level']?.toString() ?? '1';
-    String status = widget.user['status'] ?? 'active';
+
 
     return Scaffold(
       body: Stack(
@@ -436,27 +436,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                       opacity: _fadeAnimation,
                       child: Column(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.3),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  "Status: $status",
-                                  style: TextStyle(
-                                    color: status == 'active'
-                                        ? Colors.greenAccent
-                                        : Colors.orangeAccent,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+
                           const SizedBox(height: 10),
 
                         ],

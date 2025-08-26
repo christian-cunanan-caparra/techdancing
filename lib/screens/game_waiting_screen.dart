@@ -1,10 +1,11 @@
-// game_waiting_screen.dart (updated)
+// game_waiting_screen.dart (enhanced & combined)
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import 'select_dance_screen.dart';
 import 'gameplay_screen.dart';
-import '../services/music_service.dart'; // Add this import
+import '../services/music_service.dart';
 
 class GameWaitingScreen extends StatefulWidget {
   final Map user;
@@ -29,6 +30,9 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
   late Animation<double> _pulseAnimation;
   final MusicService _musicService = MusicService();
   bool _isMuted = false;
+  bool _isCopied = false;
+  Map<String, dynamic> _roomData = {};
+  List<dynamic> _players = [];
 
   @override
   void initState() {
@@ -42,7 +46,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
       duration: const Duration(seconds: 1),
     )..repeat(reverse: true);
 
-    _pulseAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
+    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
   }
@@ -77,13 +81,33 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
       final result = await ApiService.checkRoomStatus(widget.roomCode);
 
       if (result['status'] == 'success') {
-        final data = result['room'];
-        final player2Id = data['player2_id'];
-        final danceId = data['dance_id'];
+        setState(() {
+          _roomData = result['room'];
+          _players = [];
+
+          if (_roomData['player1_id'] != null) {
+            _players.add({
+              'id': _roomData['player1_id'],
+              'name': _roomData['player1_name'] ?? 'Player 1',
+              'isHost': true
+            });
+          }
+
+          if (_roomData['player2_id'] != null) {
+            _players.add({
+              'id': _roomData['player2_id'],
+              'name': _roomData['player2_name'] ?? 'Player 2',
+              'isHost': false
+            });
+          }
+        });
+
+        final player2Id = _roomData['player2_id'];
+        final danceId = _roomData['dance_id'];
 
         if (widget.isHost && player2Id != null) {
           _timer?.cancel();
-          // Stop music before going to select dance screen
+          // Stop music before navigation
           _musicService.pauseMusic(rememberToResume: false);
           Navigator.pushReplacement(
             context,
@@ -98,7 +122,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
 
         if (!widget.isHost && danceId != null) {
           _timer?.cancel();
-          // Stop music before going to gameplay screen
+          // Stop music before navigation
           _musicService.pauseMusic(rememberToResume: false);
           Navigator.pushReplacement(
             context,
@@ -122,6 +146,27 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
     });
   }
 
+  void _copyToClipboard() {
+    Clipboard.setData(ClipboardData(text: widget.roomCode));
+    setState(() {
+      _isCopied = true;
+    });
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _isCopied = false;
+        });
+      }
+    });
+  }
+
+  void _leaveRoom() {
+    _timer?.cancel();
+    // Stop music before leaving
+    _musicService.pauseMusic(rememberToResume: false);
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -133,9 +178,8 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
         foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: _leaveRoom,
+          tooltip: 'Leave Room',
         ),
         actions: [
           IconButton(
@@ -144,6 +188,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
               color: Colors.white,
             ),
             onPressed: _toggleMute,
+            tooltip: _isMuted ? 'Unmute' : 'Mute',
           ),
         ],
       ),
@@ -157,45 +202,221 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Center(
-          child: ScaleTransition(
-            scale: _pulseAnimation,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.hourglass_bottom, color: Colors.cyanAccent, size: 48),
-                const SizedBox(height: 20),
-                const Text(
-                  "Room Code",
-                  style: TextStyle(
-                    color: Colors.white54,
-                    fontSize: 20,
-                    letterSpacing: 1.2,
+        child: Column(
+          children: [
+            // Room code section
+            ScaleTransition(
+              scale: _pulseAnimation,
+              child: Container(
+                margin: const EdgeInsets.only(top: 100, bottom: 30),
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.purpleAccent.withOpacity(0.3),
+                    width: 1,
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  widget.roomCode,
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.cyanAccent,
-                    letterSpacing: 4,
-                  ),
+                child: Column(
+                  children: [
+                    const Text(
+                      "ROOM CODE",
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 14,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.roomCode,
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.cyanAccent,
+                            letterSpacing: 3,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        IconButton(
+                          icon: Icon(
+                            _isCopied ? Icons.check : Icons.content_copy,
+                            color: _isCopied ? Colors.green : Colors.white70,
+                            size: 20,
+                          ),
+                          onPressed: _copyToClipboard,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isCopied ? "Copied to clipboard!" : "Share this code with friends",
+                      style: TextStyle(
+                        color: _isCopied ? Colors.green : Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 30),
-                Text(
-                  widget.isHost
-                      ? "Waiting for another player to join..."
-                      : "Waiting for host to choose a dance...",
-                  style: const TextStyle(color: Colors.white70, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 30),
-                const CircularProgressIndicator(color: Colors.cyanAccent),
-              ],
+              ),
             ),
-          ),
+
+            // Players list
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "PLAYERS (${_players.length}/2)",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_players.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.person_outline,
+                                color: Colors.white30,
+                                size: 40,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                "Waiting for players...",
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _players.length,
+                          itemBuilder: (context, index) {
+                            final player = _players[index];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: player['isHost']
+                                          ? Colors.purpleAccent.withOpacity(0.2)
+                                          : Colors.cyanAccent.withOpacity(0.2),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      player['isHost'] ? Icons.star : Icons.person,
+                                      color: player['isHost']
+                                          ? Colors.purpleAccent
+                                          : Colors.cyanAccent,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          player['name'],
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          player['isHost'] ? "Room Host" : "Player",
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.6),
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (player['id'] == widget.user['id'])
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.cyanAccent.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        "You",
+                                        style: TextStyle(
+                                          color: Colors.cyanAccent,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Status message and loading
+            Container(
+              margin: const EdgeInsets.only(top: 20, bottom: 40),
+              child: Column(
+                children: [
+                  Text(
+                    widget.isHost
+                        ? _players.length < 2
+                        ? "Waiting for another player to join..."
+                        : "Player joined! Preparing to select dance..."
+                        : "Waiting for host to choose a dance...",
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  const CircularProgressIndicator(
+                    color: Colors.cyanAccent,
+                    strokeWidth: 2,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

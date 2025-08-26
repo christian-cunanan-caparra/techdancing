@@ -1604,7 +1604,7 @@ class PosePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
       ..color = Colors.cyanAccent.withOpacity(0.8)
-      ..strokeWidth = 4.0
+      ..strokeWidth = 8.0  // Increased from 4.0 for thicker lines
       ..style = PaintingStyle.stroke;
 
     final jointPaint = Paint()
@@ -1613,10 +1613,10 @@ class PosePainter extends CustomPainter {
 
     final jointStrokePaint = Paint()
       ..color = Colors.cyanAccent
-      ..strokeWidth = 2.0
+      ..strokeWidth = 3.0  // Increased from 2.0
       ..style = PaintingStyle.stroke;
 
-    const jointRadius = 8.0;
+    const jointRadius = 12.0;  // Increased from 8.0 for larger joints
 
     Offset mapPoint(PoseLandmark? lm) {
       if (lm == null) return Offset.zero;

@@ -15,6 +15,41 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   bool isLoading = true;
   String? errorMessage;
 
+  // Helper function to get dancer title based on level
+  String getDancerTitle(dynamic level) {
+    // Convert level to int if it's a string
+    int levelInt;
+    if (level is String) {
+      levelInt = int.tryParse(level) ?? 1;
+    } else {
+      levelInt = level as int? ?? 1;
+    }
+
+    if (levelInt >= 1 && levelInt <= 9) return 'Beginner Dancer';
+    if (levelInt >= 10 && levelInt <= 19) return 'Rookie Groover';
+    if (levelInt >= 20 && levelInt <= 29) return 'Rhythm Explorer';
+    if (levelInt >= 30 && levelInt <= 39) return 'Step Master';
+    if (levelInt >= 40 && levelInt <= 49) return 'Beat Rider';
+    if (levelInt >= 50 && levelInt <= 59) return 'Groove Specialist';
+    if (levelInt >= 60 && levelInt <= 69) return 'Dance Performer';
+    if (levelInt >= 70 && levelInt <= 79) return 'Choreo Expert';
+    if (levelInt >= 80 && levelInt <= 89) return 'Freestyle Pro';
+    if (levelInt >= 90 && levelInt <= 94) return 'Dance Master';
+    if (levelInt >= 95 && levelInt <= 98) return 'Stage Icon';
+    if (levelInt == 99) return 'Legendary Dancer';
+    return 'Beginner Dancer'; // default
+  }
+
+  // Helper function to safely get level as int
+  int getLevelAsInt(dynamic level) {
+    if (level is String) {
+      return int.tryParse(level) ?? 1;
+    } else if (level is int) {
+      return level;
+    }
+    return 1; // default
+  }
+
   @override
   void initState() {
     super.initState();
@@ -121,6 +156,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   Widget _buildPlayerPodium(Map<String, dynamic> player, int rank, double height) {
     final isCurrentUser = player['is_current_user'] ?? false;
+    final playerLevel = player['level'] ?? 1;
+    final levelInt = getLevelAsInt(playerLevel);
     Color podiumColor;
 
     switch(rank) {
@@ -175,11 +212,22 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                'Lvl ${player['level'] ?? '1'}',
+                'Lvl $levelInt',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
                 ),
+              ),
+              Text(
+                getDancerTitle(playerLevel),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -300,6 +348,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   final player = leaderboardData[index];
                   final rank = index + 1;
                   final isCurrentUser = player['is_current_user'] ?? false;
+                  final playerLevel = player['level'] ?? 1;
+                  final levelInt = getLevelAsInt(playerLevel);
 
                   return Container(
                     decoration: BoxDecoration(
@@ -336,14 +386,27 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           fontSize: 16,
                         ),
                       ),
-                      subtitle: Row(
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.star, color: Colors.yellow[600], size: 16),
-                          const SizedBox(width: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.star, color: Colors.yellow[600], size: 16),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Level $levelInt',
+                                style: TextStyle(
+                                  color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
+                                ),
+                              ),
+                            ],
+                          ),
                           Text(
-                            'Level ${player['level'] ?? '1'}',
+                            getDancerTitle(playerLevel),
                             style: TextStyle(
                               color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
                             ),
                           ),
                         ],
@@ -379,6 +442,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               ),
             ),
           ],
+
         ),
       ),
     );

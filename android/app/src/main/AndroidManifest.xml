@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.CAMERA"/>
 
     <application
-        android:label="techdancing"
+        android:label="Beat Breaker"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
