@@ -95,36 +95,50 @@ class _MultiplayerScreenState extends State<MultiplayerScreen>
 
   Future<void> createRoom() async {
     setState(() => isLoading = true);
-    final result = await ApiService.createRoom(widget.user['id'].toString());
-    setState(() => isLoading = false);
+    try {
+      final result = await ApiService.createRoom(widget.user['id']?.toString() ?? '');
+      print('Create room response: $result'); // Debug log
 
-    if (result['status'] == 'success') {
-      roomCode = result['room_code'];
-      // Don't pause music here, let the waiting screen handle it
-      Navigator.push(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              GameWaitingScreen(
-                user: widget.user,
-                roomCode: roomCode!,
-                isHost: true,
-              ),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            const begin = Offset(1.0, 0.0);
-            const end = Offset.zero;
-            const curve = Curves.easeInOut;
+      if (result?['status'] == 'success') {
+        // Fix: Access room_code from the nested 'room' object
+        final roomData = result['room'] ?? {};
+        final roomCode = roomData['room_code']?.toString() ?? '';
 
-            var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-            return SlideTransition(
-              position: animation.drive(tween),
-              child: child,
-            );
-          },
-        ),
-      );
-    } else {
-      _showError(result['message']);
+        if (roomCode.isEmpty) {
+          _showError("Failed to get room code");
+          return;
+        }
+
+        // Don't pause music here, let the waiting screen handle it
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                GameWaitingScreen(
+                  user: widget.user,
+                  roomCode: roomCode,
+                  isHost: true,
+                ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              const begin = Offset(1.0, 0.0);
+              const end = Offset.zero;
+              const curve = Curves.easeInOut;
+
+              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
+          ),
+        );
+      } else {
+        _showError(result?['message'] ?? "Failed to create room");
+      }
+    } catch (e) {
+      _showError("An error occurred: $e");
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 
@@ -133,35 +147,40 @@ class _MultiplayerScreenState extends State<MultiplayerScreen>
     if (code.isEmpty) return _showError("Please enter a room code.");
 
     setState(() => isLoading = true);
-    final result = await ApiService.joinRoom(code, widget.user['id'].toString());
-    setState(() => isLoading = false);
+    try {
+      final result = await ApiService.joinRoom(code, widget.user['id']?.toString() ?? '');
 
-    if (result['status'] == 'success') {
-      // Don't pause music here, let the waiting screen handle it
-      Navigator.push(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              GameWaitingScreen(
-                user: widget.user,
-                roomCode: code,
-                isHost: false,
-              ),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            const begin = Offset(1.0, 0.0);
-            const end = Offset.zero;
-            const curve = Curves.easeInOut;
+      if (result?['status'] == 'success') {
+        // Don't pause music here, let the waiting screen handle it
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                GameWaitingScreen(
+                  user: widget.user,
+                  roomCode: code,
+                  isHost: false,
+                ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              const begin = Offset(1.0, 0.0);
+              const end = Offset.zero;
+              const curve = Curves.easeInOut;
 
-            var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-            return SlideTransition(
-              position: animation.drive(tween),
-              child: child,
-            );
-          },
-        ),
-      );
-    } else {
-      _showError(result['message']);
+              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+              return SlideTransition(
+                position: animation.drive(tween),
+                child: child,
+              );
+            },
+          ),
+        );
+      } else {
+        _showError(result?['message'] ?? "Failed to join room");
+      }
+    } catch (e) {
+      _showError("An error occurred: $e");
+    } finally {
+      setState(() => isLoading = false);
     }
   }
 

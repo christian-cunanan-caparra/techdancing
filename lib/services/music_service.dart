@@ -39,20 +39,42 @@ class MusicService {
     }
   }
 
-  Future<void> playGameMusic() async {
+// In music_service.dart
+  Future<void> playGameMusic({required int danceId}) async {
     if (_isMuted) return;
 
+    if (kDebugMode) {
+      print('Attempting to play music for dance ID: $danceId');
+    }
+
     try {
-      await _player.stop(); // Stop any current music
-      await _player.play(AssetSource('audio/jumbo1.mp3'));
+      await _player.stop();
+
+      String audioFile;
+      if (danceId == 1) {
+        audioFile = 'audio/jumbo1.mp3';
+      } else if (danceId == 2) {
+        audioFile = 'audio/modelo.mp3';
+      } else {
+        audioFile = 'audio/background_music.mp3';
+      }
+
+      if (kDebugMode) {
+        print('Playing audio file: $audioFile');
+      }
+
+      await _player.play(AssetSource(audioFile));
       _isPlaying = true;
-      _shouldPlayOnResume = false; // Don't resume background music automatically
+      _shouldPlayOnResume = false;
       _currentScreen = 'gameplay';
+
+      if (kDebugMode) {
+        print('Music started successfully');
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error playing game music: $e');
       }
-      // Fallback: try to play menu music if game music isn't available
       await playMenuMusic(screenName: 'gameplay');
     }
   }

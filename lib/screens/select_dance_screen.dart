@@ -1,9 +1,8 @@
-
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'gameplay_screen.dart';
 import '../services/music_service.dart';
-// import 'package:flutter/scheduler.dart' show timeDilation;
 
 class SelectDanceScreen extends StatefulWidget {
   final Map user;
@@ -24,18 +23,18 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
   final MusicService _musicService = MusicService();
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
 
   int? _selectedDanceId;
-  bool _isLoading = false;
-  String _errorMessage = '';
+  bool _isLoading = true;
+  String _statusMessage = 'Waiting for dance selection...';
+  final Random _random = Random();
 
   // List of dance names with their IDs
   final List<Map<String, dynamic>> dances = const [
-    {'id': 1, 'name': 'HOTDOG NI JHUNIEL', 'difficulty': 'Easy', 'duration': '...'},
-    {'id': 2, 'name': 'PAA TUHOD BALIKAT', 'difficulty': 'Easy', 'duration': '...'},
-    // {'id': 3, 'name': 'ELECTRIC SLIDE', 'difficulty': 'Easy', 'duration': '2:00'},
-    // {'id': 4, 'name': 'COTTON EYED JOE', 'difficulty': 'Medium', 'duration': '2:45'},
+    {'id': 1, 'name': 'JUMBO HOTDOG', 'difficulty': 'Easy', 'duration': '2:30'},
+    {'id': 2, 'name': 'MODELONG CHARING', 'difficulty': 'Medium', 'duration': '3:15'},
+
   ];
 
   @override
@@ -45,19 +44,21 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
     // Initialize animations
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1500),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
     );
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+    );
 
     _controller.forward();
+
+    // Automatically select a random dance through the server
+    _selectRandomDance();
   }
 
   @override
@@ -66,170 +67,170 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
     super.dispose();
   }
 
-  void _selectDance(int danceId) async {
-    if (_isLoading) return;
+  void _selectRandomDance() async {
+    if (dances.isEmpty) return;
 
+    try {
+      // Let the server select a random dance to ensure both players get the same one
+      final result = await ApiService.selectRandomDance(widget.roomCode);
+
+      if (result['status'] == 'success') {
+        final danceId = result['dance_id'];
+        await _handleDanceSelection(danceId);
+      } else {
+        // If server selection fails, use a deterministic approach based on room code
+        final roomCodeHash = widget.roomCode.hashCode;
+        final randomIndex = roomCodeHash.abs() % dances.length;
+        final selectedDance = dances[randomIndex];
+
+        // Still try to inform the server of our selection
+        await ApiService.selectDance(widget.roomCode, selectedDance['id']);
+        await _handleDanceSelection(selectedDance['id']);
+      }
+    } catch (e) {
+      // If everything fails, use a fallback that's deterministic based on room code
+      final roomCodeHash = widget.roomCode.hashCode;
+      final randomIndex = roomCodeHash.abs() % dances.length;
+      final selectedDance = dances[randomIndex];
+
+      await _handleDanceSelection(selectedDance['id']);
+    }
+  }
+
+  Future<void> _handleDanceSelection(int danceId) async {
     setState(() {
       _selectedDanceId = danceId;
-      _isLoading = true;
-      _errorMessage = '';
+      _statusMessage = 'Dance selected!';
     });
 
     // Stop music when a dance is selected
     _musicService.pauseMusic(rememberToResume: false);
 
-    final result = await ApiService.selectDance(widget.roomCode, danceId);
+    // Add a small delay to show the selected dance
+    await Future.delayed(const Duration(milliseconds: 1500));
 
-    if (result['status'] == 'success') {
-      // Add a small delay to show the loading state
-      await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
 
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => GameplayScreen(
-            danceId: danceId,
-            roomCode: widget.roomCode,
-            userId: widget.user['id'].toString(),
-          ),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            const begin = Offset(1.0, 0.0);
-            const end = Offset.zero;
-            const curve = Curves.easeInOut;
-
-            var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-            return SlideTransition(
-              position: animation.drive(tween),
-              child: child,
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 600),
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => GameplayScreen(
+          danceId: danceId,
+          roomCode: widget.roomCode,
+          userId: widget.user['id'].toString(),
         ),
-      );
-    } else {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = result['message'] ?? "Failed to select dance";
-      });
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
 
-      // If failed, resume music
-      _musicService.resumeMusic(screenName: 'select_dance');
-
-      // Clear error after 3 seconds
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) {
-          setState(() {
-            _errorMessage = '';
-          });
-        }
-      });
-    }
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 800),
+      ),
+    );
   }
 
-  Widget _buildDanceCard(Map<String, dynamic> dance) {
-    final bool isSelected = _selectedDanceId == dance['id'];
-    final bool isSelecting = _isLoading && isSelected;
+  Widget _buildSelectedDanceCard() {
+    if (_selectedDanceId == null) return Container();
 
-    return SlideTransition(
-      position: _slideAnimation,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
+    final dance = dances.firstWhere((d) => d['id'] == _selectedDanceId, orElse: () => dances[0]);
+
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
         child: Container(
           width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 20),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF1A0C3F), Color(0xFF2D1070)],
+              colors: [Color(0xFF2D1070), Color(0xFF4A1DA3)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(25),
             boxShadow: [
               BoxShadow(
-                color: isSelected
-                    ? Colors.cyanAccent.withOpacity(0.6)
-                    : Colors.black.withOpacity(0.4),
-                blurRadius: 10,
+                color: Colors.cyanAccent.withOpacity(0.4),
+                blurRadius: 15,
                 spreadRadius: 2,
-                offset: const Offset(0, 4),
+                offset: const Offset(0, 5),
               ),
             ],
             border: Border.all(
-              color: isSelected ? Colors.cyanAccent : Colors.purpleAccent,
-              width: isSelected ? 2 : 1,
+              color: Colors.cyanAccent,
+              width: 2,
             ),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => _selectDance(dance['id']),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            dance['name'],
-                            style: TextStyle(
-                              fontSize: 22,
-                              color: Colors.cyanAccent,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.5,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.black.withOpacity(0.3),
-                                  blurRadius: 4,
-                                  offset: const Offset(2, 2),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (isSelecting)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        _buildInfoChip(
-                          Icons.speed,
-                          dance['difficulty'],
-                          _getDifficultyColor(dance['difficulty']),
-                        ),
-                        const SizedBox(width: 10),
-                        _buildInfoChip(
-                          Icons.timer,
-                          dance['duration'],
-                          Colors.purpleAccent,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 15),
-                    Text(
-                      _getDanceDescription(dance['id']),
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
+          child: Column(
+            children: [
+              const Icon(
+                Icons.check_circle,
+                color: Colors.cyanAccent,
+                size: 50,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                "DANCE SELECTED!",
+                style: TextStyle(
+                  fontSize: 22,
+                  color: Colors.cyanAccent,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 4,
+                      offset: const Offset(2, 2),
                     ),
                   ],
                 ),
+                textAlign: TextAlign.center,
               ),
-            ),
+              const SizedBox(height: 25),
+              Text(
+                dance['name'],
+                style: const TextStyle(
+                  fontSize: 28,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildInfoChip(
+                    Icons.speed,
+                    dance['difficulty'],
+                    _getDifficultyColor(dance['difficulty']),
+                  ),
+                  const SizedBox(width: 15),
+                  _buildInfoChip(
+                    Icons.timer,
+                    dance['duration'],
+                    Colors.purpleAccent,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _getDanceDescription(dance['id']),
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       ),
@@ -238,22 +239,22 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
 
   Widget _buildInfoChip(IconData icon, String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: color.withOpacity(0.5), width: 1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.5), width: 1.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 5),
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
           Text(
             text,
             style: TextStyle(
               color: color,
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -284,7 +285,9 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
       case 3:
         return 'A classic line dance that never goes out of style. Great for groups!';
       case 4:
-        return 'An upbeat country dance that will get everyone moving and having fun.';
+        return 'An upbeat dance that will get everyone moving and having fun.';
+      case 5:
+        return 'A popular 90s dance that everyone knows and loves.';
       default:
         return 'A fantastic dance choice that will test your skills and provide great entertainment.';
     }
@@ -295,18 +298,10 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text("Select a Dance"),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: _isLoading
-              ? null
-              : () {
-            Navigator.pop(context);
-          },
-        ),
+        automaticallyImplyLeading: false,
       ),
       body: Container(
         width: double.infinity,
@@ -347,59 +342,68 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
             ),
 
             // Main content
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const Text(
-                    "Pick a Dance for the Match",
-                    style: TextStyle(
-                      fontSize: 26,
-                      color: Colors.cyanAccent,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black54,
-                          blurRadius: 8,
-                          offset: Offset(2, 2),
-                        ),
-                      ],
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Title
+                    const Text(
+                      "Dance Match",
+                      style: TextStyle(
+                        fontSize: 32,
+                        color: Colors.cyanAccent,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black54,
+                            blurRadius: 8,
+                            offset: Offset(2, 2),
+                          ),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "Room Code: ${widget.roomCode}",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white.withOpacity(0.7),
-                    ),
-                  ),
-                  const SizedBox(height: 40),
 
-                  // Dance cards
-                  Expanded(
-                    child: ListView(
-                      children: dances.map((dance) => _buildDanceCard(dance)).toList(),
-                    ),
-                  ),
+                    const SizedBox(height: 8),
 
-                  // Error message
-                  if (_errorMessage.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        _errorMessage,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontSize: 14,
-                        ),
-                        textAlign: TextAlign.center,
+                    Text(
+                      "Room Code: ${widget.roomCode}",
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withOpacity(0.7),
                       ),
                     ),
-                ],
+
+                    const SizedBox(height: 40),
+
+                    // Loading or selected dance
+                    if (_isLoading && _selectedDanceId == null)
+                      Column(
+                        children: [
+                          const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                            strokeWidth: 4,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            _statusMessage,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      )
+                    else if (_selectedDanceId != null)
+                      _buildSelectedDanceCard()
+                    else
+                      Container(),
+                  ],
+                ),
               ),
             ),
           ],

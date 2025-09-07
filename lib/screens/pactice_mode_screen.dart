@@ -4,45 +4,407 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-
-import '../services/api_service.dart';
 import '../services/music_service.dart';
-import 'game_result_screen.dart';
+import '../services/api_service.dart';
 
-typedef ScoreFn = void Function(Pose pose);
+class PracticeModeScreen extends StatefulWidget {
+  final Map user;
 
-class GameplayScreen extends StatefulWidget {
+  const PracticeModeScreen({super.key, required this.user});
+
+  @override
+  State<PracticeModeScreen> createState() => _PracticeModeScreenState();
+}
+
+class _PracticeModeScreenState extends State<PracticeModeScreen>
+    with SingleTickerProviderStateMixin {
+  final MusicService _musicService = MusicService();
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  int? _selectedDanceId;
+  bool _isLoading = false;
+  String _errorMessage = '';
+
+  // List of dance names with their IDs
+  final List<Map<String, dynamic>> dances = const [
+    {'id': 1, 'name': 'HOTDOG NI JHUNIEL', 'difficulty': 'Easy', 'duration': '1:30'},
+    {'id': 2, 'name': 'PAA TUHOD BALIKAT', 'difficulty': 'Easy', 'duration': '1:45'},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Initialize animations
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _selectDance(int danceId) async {
+    if (_isLoading) return;
+
+    setState(() {
+      _selectedDanceId = danceId;
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    // Stop music when a dance is selected
+    _musicService.pauseMusic(rememberToResume: false);
+
+    // Add a small delay to show the loading state
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => PracticeGameplayScreen(
+          danceId: danceId,
+          userId: widget.user['id'].toString(),
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 600),
+      ),
+    );
+  }
+
+  Widget _buildDanceCard(Map<String, dynamic> dance) {
+    final bool isSelected = _selectedDanceId == dance['id'];
+    final bool isSelecting = _isLoading && isSelected;
+
+    return SlideTransition(
+      position: _slideAnimation,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1A0C3F), Color(0xFF2D1070)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: isSelected
+                    ? Colors.cyanAccent.withOpacity(0.6)
+                    : Colors.black.withOpacity(0.4),
+                blurRadius: 10,
+                spreadRadius: 2,
+                offset: const Offset(0, 4),
+              ),
+            ],
+            border: Border.all(
+              color: isSelected ? Colors.cyanAccent : Colors.purpleAccent,
+              width: isSelected ? 2 : 1,
+            ),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _selectDance(dance['id']),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            dance['name'],
+                            style: TextStyle(
+                              fontSize: 22,
+                              color: Colors.cyanAccent,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.5,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 4,
+                                  offset: const Offset(2, 2),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (isSelecting)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        _buildInfoChip(
+                          Icons.speed,
+                          dance['difficulty'],
+                          _getDifficultyColor(dance['difficulty']),
+                        ),
+                        const SizedBox(width: 10),
+                        _buildInfoChip(
+                          Icons.timer,
+                          dance['duration'],
+                          Colors.purpleAccent,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 15),
+                    Text(
+                      _getDanceDescription(dance['id']),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: color.withOpacity(0.5), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getDifficultyColor(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return Colors.greenAccent;
+      case 'medium':
+        return Colors.orangeAccent;
+      case 'hard':
+        return Colors.redAccent;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getDanceDescription(int danceId) {
+    switch (danceId) {
+      case 1:
+        return 'A fun and energetic dance with Latin influences. Perfect for beginners and experts alike.';
+      case 2:
+        return 'A traditional Filipino dance that challenges your coordination and rhythm.';
+      default:
+        return 'A fantastic dance choice that will test your skills and provide great practice.';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        title: const Text("Practice Mode"),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _isLoading
+              ? null
+              : () {
+            Navigator.pop(context);
+          },
+        ),
+      ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0F0523), Color(0xFF1D054A), Color(0xFF2D1070)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Stack(
+          children: [
+            // Background decorative elements
+            Positioned(
+              top: -50,
+              right: -50,
+              child: Container(
+                width: 200,
+                height: 200,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.purple.withOpacity(0.1),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: -80,
+              left: -80,
+              child: Container(
+                width: 250,
+                height: 250,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.cyan.withOpacity(0.1),
+                ),
+              ),
+            ),
+
+            // Main content
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Practice Your Dance Moves",
+                    style: TextStyle(
+                      fontSize: 26,
+                      color: Colors.cyanAccent,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black54,
+                          blurRadius: 8,
+                          offset: Offset(2, 2),
+                        ),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "No pressure, just practice!",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+
+                  // Dance cards
+                  Expanded(
+                    child: ListView(
+                      children: dances.map((dance) => _buildDanceCard(dance)).toList(),
+                    ),
+                  ),
+
+                  // Error message
+                  if (_errorMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        _errorMessage,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 14,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PracticeGameplayScreen extends StatefulWidget {
   final int danceId;
-  final String roomCode;
   final String userId;
 
-  const GameplayScreen({
+  const PracticeGameplayScreen({
     super.key,
     required this.danceId,
-    required this.roomCode,
     required this.userId,
   });
 
   @override
-  State<GameplayScreen> createState() => _GameplayScreenState();
+  State<PracticeGameplayScreen> createState() => _PracticeGameplayScreenState();
 }
 
-class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObserver {
+class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
+    with WidgetsBindingObserver {
   // Camera and Pose Detection
   CameraController? _controller;
   bool _isCameraInitialized = false;
   late PoseDetector _poseDetector;
   bool _isBusy = false;
   CustomPaint? _customPaint;
-
-  // This is the camera image's intrinsic size (portrait-corrected)
   Size _imageSize = Size.zero;
 
   // Alignment helpers
   bool _poseDetectionEnabled = true;
   int _noPoseDetectedCount = 0;
-
-  // Auto-Alignment
   Alignment _bodyAlignment = Alignment.center;
   double _bodyScale = 1.0;
   bool _showAlignmentGuide = true;
@@ -71,30 +433,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   bool _showScoreAnimation = false;
   int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
-
-  // Prevents repeated scoring while holding the same pose
   bool _poseMatched = false;
-
-  //DanceName
-  Future<String> _getDanceName(int danceId) async {
-
-    final List<Map<String, dynamic>> dances = const [
-      {'id': 1, 'name': 'JUMBO HOTDOG'},
-      {'id': 2, 'name': 'MODELONG CHARING'},
-      {'id': 3, 'name': 'ELECTRIC SLIDE'},
-      {'id': 4, 'name': 'CHA CHA SLIDE'},
-      {'id': 5, 'name': 'MACARENA'},
-    ];
-
-    final dance = dances.firstWhere(
-            (d) => d['id'] == danceId,
-        orElse: () => {'name': 'Dance'}
-    );
-
-    return dance['name'];
-  }
-
-
 
   @override
   void initState() {
@@ -132,7 +471,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
-            'scoringLogic': _scoreIntroSway as ScoreFn,
+            'scoringLogic': _scoreIntroSway,
           },
           {
             'name': 'Chacha Step',
@@ -140,7 +479,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
-            'scoringLogic': _scoreChachaStep as ScoreFn,
+            'scoringLogic': _scoreChachaStep,
           },
           {
             'name': 'Jumbo Pose',
@@ -148,7 +487,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
-            'scoringLogic': _scoreJumboPose as ScoreFn,
+            'scoringLogic': _scoreJumboPose,
           },
           {
             'name': 'Hotdog Point',
@@ -156,7 +495,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
-            'scoringLogic': _scoreHotdogPoint as ScoreFn,
+            'scoringLogic': _scoreHotdogPoint,
           },
           {
             'name': 'Final Celebration',
@@ -164,52 +503,68 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
-            'scoringLogic': _scoreFinalCelebration as ScoreFn,
+            'scoringLogic': _scoreFinalCelebration,
           },
         ];
         break;
 
-      case 2: // MODELONG CHARING
+      case 2: // PAA TUHOD BALIKAT ULO
         _danceSteps = [
           {
-            'name': 'Model Pose',
-            'description': 'Strike a model pose with confidence',
-            'duration': 9,
-            'originalDuration': 9,
-            'lyrics': 'Ako ay isang model, doon sa Ermita',
-            'scoringLogic': _scoreModelPose as ScoreFn,
+            'name': 'Paa (Feet)',
+            'description': 'Touch your feet with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Paa, paa, paa\nHawakan ang paa',
+            'scoringLogic': _scorePaaStep,
           },
           {
-            'name': 'Arms Wave',
-            'description': 'Wave arms gracefully side to side',
-            'duration': 7,
-            'originalDuration': 7,
-            'lyrics': 'Gabi-gabi sa disco at nagpapabongga',
-            'scoringLogic': _scoreArmsWave as ScoreFn,
+            'name': 'Tuhod (Knees)',
+            'description': 'Touch your knees with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Tuhod, tuhod, tuhod\nHawakan ang tuhod',
+            'scoringLogic': _scoreTuhodStep,
           },
           {
-            'name': 'Hip Sway',
-            'description': 'Sway hips from side to side',
-            'duration': 5.3,
-            'originalDuration': 5.3,
-            'lyrics': 'Sa pagka-istariray, talbog lahat sila',
-            'scoringLogic': _scoreHipSway as ScoreFn,
+            'name': 'Balikat (Shoulders)',
+            'description': 'Touch your shoulders with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Balikat, balikat, balikat\nHawakan ang balikat',
+            'scoringLogic': _scoreBalikatStep,
           },
           {
-            'name': 'Star Pose',
-            'description': 'Form a star shape with arms and legs',
-            'duration': 3,
-            'originalDuration': 3,
-            'lyrics': 'Ang mga foreigner ay nagkakandarapa',
-            'scoringLogic': _scoreStarPose as ScoreFn,
+            'name': 'Ulo (Head)',
+            'description': 'Touch your head with both hands',
+            'duration': 8,
+            'originalDuration': 8,
+            'lyrics': 'Ulo, ulo, ulo\nHawakan ang ulo',
+            'scoringLogic': _scoreUloStep,
+          },
+          {
+            'name': 'Fast Sequence 1',
+            'description': 'Quick: Paa, Tuhod, Balikat, Ulo!',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Paa, tuhod, balikat, ulo!',
+            'scoringLogic': _scoreFastSequence,
+          },
+          {
+            'name': 'Fast Sequence 2',
+            'description': 'Faster: Paa, Tuhod, Balikat, Ulo!',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Paa, tuhod, balikat, ulo!',
+            'scoringLogic': _scoreFastSequence,
           },
           {
             'name': 'Final Pose',
-            'description': 'End with a dramatic finishing pose',
-            'duration': 3,
-            'originalDuration': 3,
-            'lyrics': "'Pag ako'y sumayaw na",
-            'scoringLogic': _scoreFinalPose as ScoreFn,
+            'description': 'End with hands up celebration',
+            'duration': 4,
+            'originalDuration': 4,
+            'lyrics': 'Tapos na!',
+            'scoringLogic': _scoreFinalPose,
           },
         ];
         break;
@@ -222,9 +577,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'duration': 8,
             'originalDuration': 8,
             'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
-            'scoringLogic': _scoreIntroSway as ScoreFn,
+            'scoringLogic': _scoreIntroSway,
           },
-          // ... rest of JUMBO CHACHA steps
         ];
     }
 
@@ -247,239 +601,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return 0.3;
   }
 
-  // ==================== Updated Scoring functions ====================
-
-  // ==================== modelong charing Scoring functions ====================
-
-  void _scoreModelPose(Pose pose) {
-    final m = _alignmentMultiplier;
-    if (m == 0.0) {
-      _poseMatched = false;
-      _updateFeedback("Move into frame!", Colors.red);
-      return;
-    }
-
-    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
-    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-
-    if (leftHip == null || rightHip == null || leftShoulder == null || rightShoulder == null) {
-      _poseMatched = false;
-      _updateFeedback("Show your full body!", Colors.orange);
-      return;
-    }
-
-    // Check for model pose (one hand on hip, confident stance)
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-
-    bool handOnHip = false;
-    if (leftWrist != null && leftHip != null) {
-      handOnHip = handOnHip || _distance(leftWrist, leftHip) < 50;
-    }
-    if (rightWrist != null && rightHip != null) {
-      handOnHip = handOnHip || _distance(rightWrist, rightHip) < 50;
-    }
-
-    // Check for confident stance (shoulders back, chest out)
-    final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
-    final hipWidth = (leftHip.x - rightHip.x).abs();
-    final confidentStance = shoulderWidth > hipWidth * 0.8;
-
-    if (handOnHip && confidentStance) {
-      if (!_poseMatched) {
-        final base = 300 + Random().nextInt(150);
-        final score = (base * m).round();
-        _addToScore(score);
-        _updateFeedback("Model pose! +$score", Colors.green);
-        _consecutiveGoodPoses++;
-        _poseMatched = true;
-      }
-    } else {
-      _updateFeedback("Strike a model pose!", Colors.orange);
-      _consecutiveGoodPoses = 0;
-      _poseMatched = false;
-    }
-  }
-
-  void _scoreArmsWave(Pose pose) {
-    final m = _alignmentMultiplier;
-    if (m == 0.0) {
-      _poseMatched = false;
-      _updateFeedback("Move into frame!", Colors.red);
-      return;
-    }
-
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-
-    if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
-      _poseMatched = false;
-      _updateFeedback("Show your arms!", Colors.orange);
-      return;
-    }
-
-    // Check for arm wave motion (arms moving up and down alternately)
-    final leftArmHeight = (leftWrist.y - leftShoulder.y).abs();
-    final rightArmHeight = (rightWrist.y - rightShoulder.y).abs();
-
-    // Arms should be at different heights for the wave motion
-    final heightDifference = (leftArmHeight - rightArmHeight).abs();
-
-    if (heightDifference > 30 && (leftArmHeight > 40 || rightArmHeight > 40)) {
-      if (!_poseMatched) {
-        final base = 250 + Random().nextInt(150);
-        final score = (base * m).round();
-        _addToScore(score);
-        _updateFeedback("Great wave! +$score", Colors.green);
-        _consecutiveGoodPoses++;
-        _poseMatched = true;
-      }
-    } else {
-      _updateFeedback("Wave your arms!", Colors.orange);
-      _consecutiveGoodPoses = 0;
-      _poseMatched = false;
-    }
-  }
-
-  void _scoreHipSway(Pose pose) {
-    final m = _alignmentMultiplier;
-    if (m == 0.0) {
-      _poseMatched = false;
-      _updateFeedback("Move into frame!", Colors.red);
-      return;
-    }
-
-    final leftHip = pose.landmarks[PoseLandmarkType.leftHip];
-    final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
-
-    if (leftHip == null || rightHip == null) {
-      _poseMatched = false;
-      _updateFeedback("Show your hips!", Colors.orange);
-      return;
-    }
-
-    // SUPER SIMPLE LOGIC: Just check if one hip is noticeably higher than the other.
-    // This happens naturally during any hip sway movement.
-    final hipDifference = (leftHip.y - rightHip.y).abs();
-
-    // Set a low, easy-to-achieve threshold (adjusted for your coordinate system)
-    final bool isSwaying = hipDifference > 10;
-
-    if (isSwaying) {
-      if (!_poseMatched) {
-        // Keep the scoring generous and positive
-        final base = 140 + Random().nextInt(60); // Good points, not too high
-        final score = (base * m).round();
-        _addToScore(score);
-        _updateFeedback("Yeah! Hip sway! +$score", Colors.green);
-        _consecutiveGoodPoses++;
-        _poseMatched = true;
-
-        // Reset a timer to allow scoring again soon, creating a rhythm.
-        // This prevents holding one pose for infinite points.
-        Timer(const Duration(milliseconds: 800), () {
-          _poseMatched = false;
-        });
-      }
-    } else {
-      // Only show feedback if they were recently scoring, to avoid spam
-      if (_poseMatched) {
-        _updateFeedback("Keep swaying!", Colors.orange);
-      }
-      _consecutiveGoodPoses = 0;
-    }
-  }
-
-  void _scoreStarPose(Pose pose) {
-    final m = _alignmentMultiplier;
-    if (m == 0.0) {
-      _poseMatched = false;
-      _updateFeedback("Move into frame!", Colors.red);
-      return;
-    }
-
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
-    final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-
-    if (leftWrist == null || rightWrist == null || leftAnkle == null || rightAnkle == null ||
-        leftShoulder == null || rightShoulder == null) {
-      _poseMatched = false;
-      _updateFeedback("Show your full body!", Colors.orange);
-      return;
-    }
-
-    // Check for star pose (arms and legs spread out)
-    final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
-    final wristWidth = (leftWrist.x - rightWrist.x).abs();
-    final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
-
-    final armsSpread = wristWidth > shoulderWidth * 1.5;
-    final legsSpread = ankleWidth > shoulderWidth * 1.2;
-    final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
-
-    if (armsSpread && legsSpread && armsUp) {
-      if (!_poseMatched) {
-        final base = 500 + Random().nextInt(500);
-        final score = (base * m).round();
-        _addToScore(score);
-        _updateFeedback("Perfect star! +$score", Colors.green);
-        _consecutiveGoodPoses++;
-        _poseMatched = true;
-      }
-    } else {
-      _updateFeedback("Make a star shape!", Colors.orange);
-      _consecutiveGoodPoses = 0;
-      _poseMatched = false;
-    }
-  }
-
-  void _scoreFinalPose(Pose pose) {
-    final m = _alignmentMultiplier;
-    if (m == 0.0) {
-      _poseMatched = false;
-      _updateFeedback("Move into frame!", Colors.red);
-      return;
-    }
-
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-    final nose = pose.landmarks[PoseLandmarkType.nose];
-
-    if (leftWrist == null || rightWrist == null || nose == null) {
-      _poseMatched = false;
-      _updateFeedback("Show your hands!", Colors.orange);
-      return;
-    }
-
-    // Check for dramatic final pose (arms up high)
-    final leftArmUp = leftWrist.y < nose.y - 50;
-    final rightArmUp = rightWrist.y < nose.y - 50;
-    final armsUp = leftArmUp && rightArmUp;
-
-    if (armsUp) {
-      if (!_poseMatched) {
-        final base = 300 + Random().nextInt(150);
-        final score = (base * m).round();
-        _addToScore(score);
-        _updateFeedback("Perfect finish! +$score", Colors.green);
-        _consecutiveGoodPoses++;
-        _poseMatched = true;
-      }
-    } else {
-      _updateFeedback("Arms up high!", Colors.orange);
-      _consecutiveGoodPoses = 0;
-      _poseMatched = false;
-    }
-  }
-
+  // ==================== PAA TUHOD BALIKAT ULO Scoring functions ====================
   void _scorePaaStep(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
@@ -499,7 +621,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check if both hands are touching or near feet
     final leftHandNearFoot = _distance(leftWrist, leftAnkle) < 60;
     final rightHandNearFoot = _distance(rightWrist, rightAnkle) < 60;
     final handsLow = leftWrist.y > leftAnkle.y - 30 && rightWrist.y > rightAnkle.y - 30;
@@ -539,7 +660,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check if both hands are touching or near knees
     final leftHandNearKnee = _distance(leftWrist, leftKnee) < 50;
     final rightHandNearKnee = _distance(rightWrist, rightKnee) < 50;
     final handsAtKneeLevel = leftWrist.y > leftKnee.y - 20 && rightWrist.y > rightKnee.y - 20;
@@ -579,7 +699,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check if both hands are touching or near shoulders
     final leftHandNearShoulder = _distance(leftWrist, leftShoulder) < 40;
     final rightHandNearShoulder = _distance(rightWrist, rightShoulder) < 40;
     final handsAtShoulderLevel = leftWrist.y < leftShoulder.y + 30 && rightWrist.y < rightShoulder.y + 30;
@@ -618,7 +737,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check if both hands are touching or near head
     final leftHandNearHead = _distance(leftWrist, nose) < 80;
     final rightHandNearHead = _distance(rightWrist, nose) < 80;
     final handsHigh = leftWrist.y < nose.y + 50 && rightWrist.y < nose.y + 50;
@@ -660,7 +778,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check which body part the hands are closest to
     double minDistance = double.infinity;
     String currentPosition = "";
 
@@ -696,7 +813,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     }
 
-    // Award points for being in any position during fast sequence
     if (minDistance < 100 && currentPosition.isNotEmpty) {
       if (!_poseMatched) {
         final base = 200 + Random().nextInt(50);
@@ -728,6 +844,42 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
+  void _scoreFinalPose(Pose pose) {
+    final m = _alignmentMultiplier;
+    if (m == 0.0) {
+      _poseMatched = false;
+      _updateFeedback("Move into frame!", Colors.red);
+      return;
+    }
+
+    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
+    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
+    final nose = pose.landmarks[PoseLandmarkType.nose];
+
+    if (leftWrist == null || rightWrist == null || nose == null) {
+      _poseMatched = false;
+      _updateFeedback("Show your hands!", Colors.orange);
+      return;
+    }
+
+    final handsHigh = leftWrist.y < nose.y && rightWrist.y < nose.y;
+
+    if (handsHigh) {
+      if (!_poseMatched) {
+        final base = 300 + Random().nextInt(100);
+        final score = (base * m).round();
+        _addToScore(score);
+        _updateFeedback("Perfect finish! +$score", Colors.green);
+        _consecutiveGoodPoses++;
+        _poseMatched = true;
+      }
+    } else {
+      _updateFeedback("Hands up celebration!", Colors.orange);
+      _consecutiveGoodPoses = 0;
+      _poseMatched = false;
+    }
+  }
+
   void _scoreIntroSway(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
@@ -747,20 +899,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for gentle swaying motion (arms moving together)
     final leftArmHeight = (leftWrist.y - leftShoulder.y).abs();
     final rightArmHeight = (rightWrist.y - rightShoulder.y).abs();
-
-    // Both arms should be at similar height for the sway
     final heightDifference = (leftArmHeight - rightArmHeight).abs();
 
     if (heightDifference < 50 && leftArmHeight > 50 && rightArmHeight > 50) {
       if (!_poseMatched) {
-        // INCREASED BASE SCORE FROM 100 TO 200
-        final base = 200 + Random().nextInt(100); // Increased from 100 + Random().nextInt(50)
+        final base = 100 + Random().nextInt(50);
         final score = (base * m).round();
         _addToScore(score);
-        _updateFeedback("Excellent sway! +$score", Colors.green);
+        _updateFeedback("Nice sway! +$score", Colors.green);
         _consecutiveGoodPoses++;
         _poseMatched = true;
       }
@@ -790,13 +938,12 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for chacha step (feet wider than hips)
     final hipWidth = (leftHip.x - rightHip.x).abs();
     final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
 
     if (ankleWidth > hipWidth * 1.2) {
       if (!_poseMatched) {
-        final base = 300 + Random().nextInt(100);
+        final base = 150 + Random().nextInt(50);
         final score = (base * m).round();
         _addToScore(score);
         _updateFeedback("Great chacha! +$score", Colors.green);
@@ -829,14 +976,13 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for "Jumbo" pose (arms wide and up)
     final leftArmSpread = (leftWrist.x - leftShoulder.x).abs();
     final rightArmSpread = (rightWrist.x - rightShoulder.x).abs();
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
 
     if (armsUp && leftArmSpread > 50 && rightArmSpread > 50) {
       if (!_poseMatched) {
-        final base = 500 + Random().nextInt(300);
+        final base = 200 + Random().nextInt(100);
         final score = (base * m).round();
         _addToScore(score);
         _updateFeedback("JUMBO! +$score", Colors.green);
@@ -869,15 +1015,12 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for pointing motion (one arm extended forward)
     final leftArmExtended = (leftWrist.x - leftElbow.x).abs() > 50;
     final rightArmExtended = (rightWrist.x - rightElbow.x).abs() > 50;
 
-    // Only one arm should be extended at a time
     if (leftArmExtended != rightArmExtended) {
       if (!_poseMatched) {
-        // INCREASED BASE SCORE FROM 175 TO 250
-        final base = 450 + Random().nextInt(250); // Increased from 175 + Random().nextInt(75)
+        final base = 175 + Random().nextInt(75);
         final score = (base * m).round();
         _addToScore(score);
         _updateFeedback("Perfect point! +$score", Colors.green);
@@ -910,7 +1053,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for hands on hips celebration pose
     final leftHandOnHip = _distance(leftWrist, leftHip) < 50;
     final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
 
@@ -946,24 +1088,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         });
       }
     });
-  }
-
-  double _calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
-    final baX = a.x - b.x;
-    final baY = a.y - b.y;
-    final bcX = c.x - b.x;
-    final bcY = c.y - b.y;
-
-    final dotProduct = (baX * bcX) + (baY * bcY);
-    final magBA = sqrt(baX * baX + baY * baY);
-    final magBC = sqrt(bcX * bcX + bcY * bcY);
-
-    final denom = magBA * magBC;
-    if (denom == 0) return 180;
-
-    final cosTheta = (dotProduct / denom).clamp(-1.0, 1.0);
-    final angle = acos(cosTheta);
-    return angle * (180 / pi);
   }
 
   double _distance(PoseLandmark a, PoseLandmark b) {
@@ -1002,8 +1126,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _startGame() {
-    // Play the appropriate music based on danceId
-    MusicService().playGameMusic(danceId: widget.danceId); // This line should be outside the switch statement
+    switch (widget.danceId) {
+      case 1: // JUMBO CHACHA
+        MusicService().playGameMusic(danceId: widget.danceId);
+    }
 
     setState(() {
       _isGameStarted = true;
@@ -1053,67 +1179,24 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
-  Future<void> _updateUserXP(int xpGained) async {
-    try {
-      final result = await ApiService.updateUserXP(widget.userId, xpGained);
-
-      if (result['status'] == 'success' && result['leveled_up'] == true) {
-        // Show level up notification after the game over dialog
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("🎉 Level Up! You're now level ${result['new_level']}!"),
-              duration: const Duration(seconds: 3),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint("Error updating XP: $e");
-    }
-  }
   void _endGame() {
     _gameTimer?.cancel();
-
-    // Stop the game music
     MusicService().stopMusic();
 
     final maxPossibleScore = _danceSteps.length * 1000;
     final percentage = maxPossibleScore == 0 ? 0 : (_totalScore / maxPossibleScore * 100).round();
 
-    // Calculate XP based on performance
-    int xpGained = 0;
-    if (percentage >= 90) {
-      xpGained = 100; // Perfect score
-    } else if (percentage >= 70) {
-      xpGained = 75; // Very good
-    } else if (percentage >= 50) {
-      xpGained = 50; // Good
-    } else {
-      xpGained = 25; // Try again
-    }
-
-    // Add bonus for consecutive good poses
-    xpGained += (_consecutiveGoodPoses ~/ 10) * 10;
-
-    // Navigate to result screen
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => GameResultScreen(
+        builder: (context) => PracticeResultScreen(
           totalScore: _totalScore,
           percentage: percentage,
-          xpGained: xpGained,
           stepScores: _stepScores,
           danceSteps: _danceSteps,
-          userId: widget.userId, // Add this line
         ),
       ),
     );
-
-    // Update user XP in background
-    _updateUserXP(xpGained);
   }
 
   Future<void> _initializeCamera() async {
@@ -1137,11 +1220,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       await _controller!.initialize().then((_) {
         if (!mounted) return;
 
-        // In portrait, previewSize is landscape (width>height), so swap.
         final previewSize = _controller!.value.previewSize!;
         _imageSize = Size(previewSize.height, previewSize.width);
 
-        // Start stream
         _controller!.startImageStream(_processCameraImage);
 
         setState(() => _isCameraInitialized = true);
@@ -1292,7 +1373,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _calculateAlignment(smoothedPose);
 
         if (_isGameStarted && _currentStep < _danceSteps.length) {
-          final ScoreFn fn = _danceSteps[_currentStep]['scoringLogic'] as ScoreFn;
+          final Function(Pose) fn = _danceSteps[_currentStep]['scoringLogic'] as Function(Pose);
           fn(smoothedPose);
         }
 
@@ -1342,7 +1423,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
       final bytes = allBytes.done().buffer.asUint8List();
 
-      // Typical for Android front camera in portrait.
       final rotation = _controller!.description.lensDirection == CameraLensDirection.front
           ? InputImageRotation.rotation270deg
           : InputImageRotation.rotation90deg;
@@ -1374,7 +1454,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _feedbackTimer?.cancel();
     _alignmentTimer?.cancel();
 
-    // Stop game music when screen is disposed
     if (_isGameStarted) {
       MusicService().stopMusic();
     }
@@ -1419,7 +1498,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return Scaffold(
       body: Stack(
         children: [
-          // Camera + Pose overlay aligned by shared image size and FittedBox scaling
+          // Camera + Pose overlay
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.cover,
@@ -1503,37 +1582,15 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
+                      const Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          FutureBuilder<String>(
-                            future: _getDanceName(widget.danceId),
-                            builder: (context, snapshot) {
-                              String danceName = "Dance Challenge";
-                              if (snapshot.hasData) {
-                                danceName = snapshot.data!;
-                              }
-                              return Text(
-                                "$danceName Challenge",
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 5,
-                                      color: Colors.black,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
                           Text(
-                            "Room: ${widget.roomCode}",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              color: Colors.white70,
+                            "Practice Mode",
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
                               shadows: [
                                 Shadow(
                                   blurRadius: 5,
@@ -1544,7 +1601,43 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                           ),
                         ],
                       ),
-                      // REMOVED THE TIMER FROM THIS COLUMN
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            "$_timeRemaining s",
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
+                          ),
+                          AnimatedOpacity(
+                            opacity: _showScoreAnimation ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: Text(
+                              "+$_lastScoreIncrement",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.cyanAccent,
+                                shadows: [
+                                  Shadow(
+                                    blurRadius: 5,
+                                    color: Colors.black,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
 
@@ -1569,7 +1662,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                             ),
                           ),
                           const Text(
-                            "Get ready to dance!",
+                            "Get ready to practice!",
                             style: TextStyle(
                               fontSize: 24,
                               color: Colors.white,
@@ -1712,20 +1805,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
 class PosePainter extends CustomPainter {
   final List<Pose> poses;
-  final Size imageSize;     // intrinsic camera image size (portrait-corrected)
+  final Size imageSize;
   final bool isFrontCamera;
 
-  PosePainter(
-      this.poses,
-      this.imageSize,
-      this.isFrontCamera,
-      );
+  PosePainter(this.poses, this.imageSize, this.isFrontCamera);
 
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
       ..color = Colors.cyanAccent.withOpacity(0.8)
-      ..strokeWidth = 8.0  // Increased from 4.0 for thicker lines
+      ..strokeWidth = 8.0
       ..style = PaintingStyle.stroke;
 
     final jointPaint = Paint()
@@ -1734,10 +1823,10 @@ class PosePainter extends CustomPainter {
 
     final jointStrokePaint = Paint()
       ..color = Colors.cyanAccent
-      ..strokeWidth = 3.0  // Increased from 2.0
+      ..strokeWidth = 3.0
       ..style = PaintingStyle.stroke;
 
-    const jointRadius = 12.0;  // Increased from 8.0 for larger joints
+    const jointRadius = 12.0;
 
     Offset mapPoint(PoseLandmark? lm) {
       if (lm == null) return Offset.zero;
@@ -1786,4 +1875,169 @@ class PosePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class PracticeResultScreen extends StatelessWidget {
+  final int totalScore;
+  final int percentage;
+  final List<int> stepScores;
+  final List<Map<String, dynamic>> danceSteps;
+
+  const PracticeResultScreen({
+    super.key,
+    required this.totalScore,
+    required this.percentage,
+    required this.stepScores,
+    required this.danceSteps,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String resultText;
+    Color resultColor;
+
+    if (percentage >= 90) {
+      resultText = "PERFECT! ($percentage%)";
+      resultColor = Colors.deepOrange;
+    } else if (percentage >= 70) {
+      resultText = "VERY GOOD! ($percentage%)";
+      resultColor = Colors.green;
+    } else if (percentage >= 50) {
+      resultText = "GOOD ($percentage%)";
+      resultColor = Colors.blue;
+    } else {
+      resultText = "TRY AGAIN ($percentage%)";
+      resultColor = Colors.red;
+    }
+
+    return Scaffold(
+        backgroundColor: Colors.black87,
+        body: SafeArea(
+        child: Padding(
+        padding: const EdgeInsets.all(20),
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+    const Text(
+    "Practice Complete",
+    style: TextStyle(
+    fontSize: 32,
+    fontWeight: FontWeight.bold,
+    color: Colors.white,
+    ),
+    ),
+    const SizedBox(height: 30),
+    Text(
+    "Total Score: $totalScore",
+    style: const TextStyle(
+    fontSize: 28,
+    color: Colors.white,
+    ),
+    ),
+    const SizedBox(height: 15),
+    Text(
+    resultText,
+    style: TextStyle(
+    fontSize: 24,
+    color: resultColor,
+    fontWeight: FontWeight.bold,
+    ),
+    ),
+    const SizedBox(height: 30),
+    Expanded(
+    child: ListView(
+    children: [
+      const Text(
+        "Step Scores:",
+        style: TextStyle(
+          fontSize: 20,
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 15),
+      ...danceSteps.asMap().entries.map((entry) {
+        final idx = entry.key;
+        final step = entry.value;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  step['name'],
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.white70,
+                  ),
+                ),
+              ),
+              Text(
+                "${stepScores[idx]} pts",
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    ],
+    ),
+    ),
+      const SizedBox(height: 20),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyanAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+            ),
+            child: const Text(
+              "BACK",
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PracticeModeScreen(user: {}),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purpleAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+            ),
+            child: const Text(
+              "PRACTICE AGAIN",
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    ],
+    ),
+        ),
+        ),
+    );
+  }
 }

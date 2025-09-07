@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
+import 'verification_screen.dart';
+
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -75,16 +77,29 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
       );
 
       if (result['status'] == 'success') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Registration successful!"),
-            backgroundColor: Colors.greenAccent,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-
-        Navigator.of(context).pushReplacement(_createFadeRoute(const LoginScreen()));
+        // Check if verification is required
+        if (result['requires_verification'] == true) {
+          // Navigate to verification screen
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => VerificationScreen(
+                email: emailController.text.trim(),
+                name: nameController.text.trim(),
+              ),
+            ),
+          );
+        } else {
+          // Old behavior for backward compatibility
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text("Registration successful!"),
+              backgroundColor: Colors.greenAccent,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+          Navigator.of(context).pushReplacement(_createFadeRoute(const LoginScreen()));
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

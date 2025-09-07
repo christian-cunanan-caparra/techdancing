@@ -77,63 +77,73 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
 
   void _startPollingRoom() {
     _timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      final result = await ApiService.checkRoomStatus(widget.roomCode);
+      try {
+        final result = await ApiService.checkRoomStatus(widget.roomCode);
 
-      if (result['status'] == 'success') {
-        setState(() {
-          _roomData = result['room'];
-          _players = [];
+        if (result['status'] == 'success') {
+          setState(() {
+            _roomData = result['room'] ?? {};
+            _players = [];
 
-          if (_roomData['player1_id'] != null) {
-            _players.add({
-              'id': _roomData['player1_id'],
-              'name': _roomData['player1_name'] ?? 'Player 1',
-              'isHost': true
-            });
+            if (_roomData['player1_id'] != null) {
+              _players.add({
+                'id': _roomData['player1_id'],
+                'name': _roomData['player1_name'] ?? 'Player 1',
+                'isHost': true
+              });
+            }
+
+            if (_roomData['player2_id'] != null) {
+              _players.add({
+                'id': _roomData['player2_id'],
+                'name': _roomData['player2_name'] ?? 'Player 2',
+                'isHost': false
+              });
+            }
+          });
+
+          // Safely access room data with null checks
+          final player2Id = _roomData['player2_id'];
+          final danceId = _roomData['dance_id'];
+          final gameType = result['game_type'] ?? 'multiplayer';
+
+          if (gameType == 'multiplayer') {
+            if (widget.isHost && player2Id != null) {
+              _timer?.cancel();
+              _musicService.pauseMusic(rememberToResume: false);
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SelectDanceScreen(
+                    user: widget.user,
+                    roomCode: widget.roomCode,
+                  ),
+                ),
+              );
+            }
+
+            if (!widget.isHost && danceId != null) {
+              _timer?.cancel();
+              _musicService.pauseMusic(rememberToResume: false);
+              // Safely parse danceId
+              final parsedDanceId = int.tryParse(danceId.toString()) ?? 0;
+              if (parsedDanceId > 0) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GameplayScreen(
+                      danceId: parsedDanceId,
+                      roomCode: widget.roomCode,
+                      userId: widget.user['id']?.toString() ?? '',
+                    ),
+                  ),
+                );
+              }
+            }
           }
-
-          if (_roomData['player2_id'] != null) {
-            _players.add({
-              'id': _roomData['player2_id'],
-              'name': _roomData['player2_name'] ?? 'Player 2',
-              'isHost': false
-            });
-          }
-        });
-
-        final player2Id = _roomData['player2_id'];
-        final danceId = _roomData['dance_id'];
-
-        if (widget.isHost && player2Id != null) {
-          _timer?.cancel();
-          // Stop music before navigation
-          _musicService.pauseMusic(rememberToResume: false);
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SelectDanceScreen(
-                user: widget.user,
-                roomCode: widget.roomCode,
-              ),
-            ),
-          );
         }
-
-        if (!widget.isHost && danceId != null) {
-          _timer?.cancel();
-          // Stop music before navigation
-          _musicService.pauseMusic(rememberToResume: false);
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => GameplayScreen(
-                danceId: int.parse(danceId.toString()),
-                roomCode: widget.roomCode,
-                userId: widget.user['id'].toString(),
-              ),
-            ),
-          );
-        }
+      } catch (e) {
+        print('Error in polling: $e');
       }
     });
   }
@@ -161,17 +171,20 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
 
   void _leaveRoom() {
     _timer?.cancel();
-    // Stop music before leaving
     _musicService.pauseMusic(rememberToResume: false);
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Safely access user properties with null checks
+    final userName = widget.user['name']?.toString() ?? 'Player';
+    final userId = widget.user['id']?.toString() ?? '';
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text("Waiting Room"),
+        title: Text("$userName's Waiting Room"), // Use safe variable
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
@@ -203,11 +216,24 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Column(
           children: [
+            // User welcome message
+            Container(
+              margin: const EdgeInsets.only(top: 80, bottom: 10),
+              child: Text(
+                "Welcome, $userName!", // Use safe variable
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+
             // Room code section
             ScaleTransition(
               scale: _pulseAnimation,
               child: Container(
-                margin: const EdgeInsets.only(top: 100, bottom: 30),
+                margin: const EdgeInsets.only(bottom: 30),
                 padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.08),
@@ -314,6 +340,10 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
                           itemCount: _players.length,
                           itemBuilder: (context, index) {
                             final player = _players[index];
+                            final playerId = player['id']?.toString() ?? '';
+                            final playerName = player['name']?.toString() ?? 'Player';
+                            final isCurrentUser = playerId == userId;
+
                             return Container(
                               margin: const EdgeInsets.only(bottom: 12),
                               padding: const EdgeInsets.symmetric(
@@ -347,7 +377,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          player['name'],
+                                          playerName, // Use safe variable
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontSize: 16,
@@ -365,7 +395,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
                                       ],
                                     ),
                                   ),
-                                  if (player['id'] == widget.user['id'])
+                                  if (isCurrentUser)
                                     Container(
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 4),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'player_profile_screen.dart';
 
 class LeaderboardScreen extends StatefulWidget {
   final String userId;
@@ -17,7 +18,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   // Helper function to get dancer title based on level
   String getDancerTitle(dynamic level) {
-    // Convert level to int if it's a string
     int levelInt;
     if (level is String) {
       levelInt = int.tryParse(level) ?? 1;
@@ -37,17 +37,30 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     if (levelInt >= 90 && levelInt <= 94) return 'Dance Master';
     if (levelInt >= 95 && levelInt <= 98) return 'Stage Icon';
     if (levelInt == 99) return 'Legendary Dancer';
-    return 'Beginner Dancer'; // default
+    return 'Beginner Dancer';
   }
 
-  // Helper function to safely get level as int
   int getLevelAsInt(dynamic level) {
     if (level is String) {
       return int.tryParse(level) ?? 1;
     } else if (level is int) {
       return level;
     }
-    return 1; // default
+    return 1;
+  }
+
+  bool _parseIsCurrentUser(dynamic isCurrentUserValue) {
+    if (isCurrentUserValue == null) {
+      return false;
+    } else if (isCurrentUserValue is bool) {
+      return isCurrentUserValue;
+    } else if (isCurrentUserValue is int) {
+      return isCurrentUserValue == 1;
+    } else if (isCurrentUserValue is String) {
+      return isCurrentUserValue == '1' || isCurrentUserValue.toLowerCase() == 'true';
+    } else {
+      return false;
+    }
   }
 
   @override
@@ -136,16 +149,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
     return Column(
       children: [
-        // 2nd place
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             _buildPlayerPodium(leaderboardData[1], 2, 90),
             const SizedBox(width: 8),
-            // 1st place
             _buildPlayerPodium(leaderboardData[0], 1, 120),
             const SizedBox(width: 8),
-            // 3rd place
             _buildPlayerPodium(leaderboardData[2], 3, 80),
           ],
         ),
@@ -155,7 +165,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 
   Widget _buildPlayerPodium(Map<String, dynamic> player, int rank, double height) {
-    final isCurrentUser = player['is_current_user'] ?? false;
+    final isCurrentUser = _parseIsCurrentUser(player['is_current_user']);
     final playerLevel = player['level'] ?? 1;
     final levelInt = getLevelAsInt(playerLevel);
     Color podiumColor;
@@ -167,92 +177,102 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       default: podiumColor = Colors.purple[400]!;
     }
 
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 30,
-          backgroundColor: isCurrentUser ? Colors.yellow : Colors.purple[300],
-          child: Text(
-            player['name']?.toString().substring(0, 1).toUpperCase() ?? '?',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: isCurrentUser ? Colors.black : Colors.white,
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PlayerProfileScreen(player: player),
+          ),
+        );
+      },
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 30,
+            backgroundColor: isCurrentUser ? Colors.yellow : Colors.purple[300],
+            child: Text(
+              player['name']?.toString().substring(0, 1).toUpperCase() ?? '?',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: isCurrentUser ? Colors.black : Colors.white,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          width: 80,
-          height: height,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                podiumColor.withOpacity(0.8),
-                podiumColor.withOpacity(0.4),
+          const SizedBox(height: 8),
+          Container(
+            width: 80,
+            height: height,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  podiumColor.withOpacity(0.8),
+                  podiumColor.withOpacity(0.4),
+                ],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(8),
+                topRight: Radius.circular(8),
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  player['name']?.toString().split(' ')[0] ?? 'Player',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'Lvl $levelInt',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                  ),
+                ),
+                Text(
+                  getDancerTitle(playerLevel),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(8),
-              topRight: Radius.circular(8),
+          ),
+          Container(
+            width: 80,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            decoration: BoxDecoration(
+              color: podiumColor.withOpacity(0.9),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(8),
+                bottomRight: Radius.circular(8),
+              ),
+            ),
+            child: Text(
+              '#$rank',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                player['name']?.toString().split(' ')[0] ?? 'Player',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                'Lvl $levelInt',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                ),
-              ),
-              Text(
-                getDancerTitle(playerLevel),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 8,
-                  fontStyle: FontStyle.italic,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        Container(
-          width: 80,
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          decoration: BoxDecoration(
-            color: podiumColor.withOpacity(0.9),
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(8),
-              bottomRight: Radius.circular(8),
-            ),
-          ),
-          child: Text(
-            '#$rank',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -343,98 +363,108 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 itemCount: leaderboardData.length,
                 separatorBuilder: (context, index) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  if (index < 3) return const SizedBox(); // Skip top 3 as they're shown in podium
+                  if (index < 3) return const SizedBox();
 
                   final player = leaderboardData[index];
                   final rank = index + 1;
-                  final isCurrentUser = player['is_current_user'] ?? false;
+                  final isCurrentUser = _parseIsCurrentUser(player['is_current_user']);
                   final playerLevel = player['level'] ?? 1;
                   final levelInt = getLevelAsInt(playerLevel);
 
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.purple.withOpacity(0.5),
-                          Colors.blue.withOpacity(0.3),
+                  return GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => PlayerProfileScreen(player: player),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.purple.withOpacity(0.5),
+                            Colors.blue.withOpacity(0.3),
+                          ],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isCurrentUser
+                              ? Colors.yellow.withOpacity(0.5)
+                              : Colors.transparent,
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
                         ],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
                       ),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isCurrentUser
-                            ? Colors.yellow.withOpacity(0.5)
-                            : Colors.transparent,
-                        width: 2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+                      child: ListTile(
+                        leading: _buildMedalIcon(rank),
+                        title: Text(
+                          player['name'] ?? 'Unknown',
+                          style: TextStyle(
+                            color: isCurrentUser ? Colors.yellow : Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
                         ),
-                      ],
-                    ),
-                    child: ListTile(
-                      leading: _buildMedalIcon(rank),
-                      title: Text(
-                        player['name'] ?? 'Unknown',
-                        style: TextStyle(
-                          color: isCurrentUser ? Colors.yellow : Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.star, color: Colors.yellow[600], size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Level $levelInt',
+                                  style: TextStyle(
+                                    color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              getDancerTitle(playerLevel),
+                              style: TextStyle(
+                                color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.star, color: Colors.yellow[600], size: 16),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Level $levelInt',
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isCurrentUser
+                                    ? Colors.yellow.withOpacity(0.2)
+                                    : Colors.purple.withOpacity(0.5),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '#$rank',
                                 style: TextStyle(
-                                  color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
+                                  color: isCurrentUser ? Colors.yellow : Colors.white,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
-                            ],
-                          ),
-                          Text(
-                            getDancerTitle(playerLevel),
-                            style: TextStyle(
-                              color: isCurrentUser ? Colors.yellow[200] : Colors.white70,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
                             ),
-                          ),
-                        ],
-                      ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isCurrentUser
-                                  ? Colors.yellow.withOpacity(0.2)
-                                  : Colors.purple.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '#$rank',
-                              style: TextStyle(
-                                color: isCurrentUser ? Colors.yellow : Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
+                          ],
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
                       ),
                     ),
                   );
@@ -442,7 +472,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               ),
             ),
           ],
-
         ),
       ),
     );

@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import 'main_menu_screen.dart';
 import 'register_screen.dart';
-
+import 'verification_screen.dart'; // Import the verification screen
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -108,14 +108,19 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           MainMenuScreen(user: result['user']),
         ));
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Login failed'),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
+        // Handle unverified account
+        if (result['requires_verification'] == true) {
+          _showVerificationRequiredDialog(result['email'] ?? emailController.text.trim());
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'Login failed'),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          );
+        }
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -130,6 +135,79 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       if (mounted) {
         setState(() => isLoading = false);
       }
+    }
+  }
+
+  void _showVerificationRequiredDialog(String email) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1539),
+        title: const Text(
+          "Account Not Verified",
+          style: TextStyle(color: Colors.white, fontSize: 20),
+        ),
+        content: Text(
+          "Your account hasn't been verified. Please check your email for the verification code sent to $email",
+          style: const TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to verification screen
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (context) => VerificationScreen(
+                    email: email,
+                    name: "", // We don't have the name here, but it's optional
+                  ),
+                ),
+              );
+            },
+            child: const Text("Verify Now", style: TextStyle(color: Colors.pinkAccent)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _resendVerificationCode(email);
+            },
+            child: const Text("Resend Code", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _resendVerificationCode(String email) async {
+    try {
+      final result = await ApiService.resendVerification(email);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['status'] == 'success'
+                ? "Verification code resent to $email"
+                : "Failed to resend code",
+          ),
+          backgroundColor: result['status'] == 'success' ? Colors.greenAccent : Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Failed to resend verification code'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
     }
   }
 
@@ -299,9 +377,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       children: [
                         TextButton(
                           onPressed: () {
-                            Navigator.of(context).push(
-                              _createFadeRoute(const () as Widget),
-                            );
+                            // Forgot password functionality
                           },
                           child: const Text(
                             "Forgot Password?",
@@ -377,13 +453,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 20),
-
-                  const SizedBox(height: 15),
-                  SlideTransition(
-                    position: _slideAnimation,
-
                   ),
                 ],
               ),
