@@ -51,15 +51,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
     _loadAchievements();
   }
 
-  // Helper function to parse values safely
-  int _safeParseInt(dynamic value, {int defaultValue = 0}) {
-    if (value == null) return defaultValue;
-    if (value is int) return value;
-    if (value is String) return int.tryParse(value) ?? defaultValue;
-    if (value is double) return value.toInt();
-    return defaultValue;
-  }
-
   Future<void> _loadAchievements() async {
     setState(() {
       _isLoading = true;
@@ -67,269 +58,79 @@ class _AchievementsScreenState extends State<AchievementsScreen>
     });
 
     try {
-      // In a real app, you would fetch achievements from your API
-      // For now, we'll simulate with local data
-      await Future.delayed(const Duration(milliseconds: 500));
+      print('Loading achievements for user: ${_currentUser['id']}');
 
-      int gamesPlayed = _safeParseInt(_currentUser['games_played']);
-      int level = _safeParseInt(_currentUser['level']);
-      int highScore = _safeParseInt(_currentUser['high_score']);
-      int totalScore = _safeParseInt(_currentUser['total_score']);
-      int multiplayerWins = _safeParseInt(_currentUser['multiplayer_wins']);
-      int perfectScores = _safeParseInt(_currentUser['perfect_scores']);
+      // Fetch achievements from API
+      final response = await ApiService.getUserAchievements(_currentUser['id'].toString());
 
-      setState(() {
-        _achievements = [
-          {
-            'id': 'first_game',
-            'name': 'First Steps',
-            'description': 'Complete your first dance game',
-            'icon': Icons.star_border,
-            'completed': gamesPlayed > 0,
-            'progress': gamesPlayed > 0 ? 1 : 0,
-            'target': 1,
-            'reward': '10 XP',
-            'category': 'General',
-            'unlockedAt': gamesPlayed > 0 ? DateTime.now() : null,
-          },
-          {
-            'id': 'level_10',
-            'name': 'Rising Star',
-            'description': 'Reach level 10',
-            'icon': Icons.emoji_events,
-            'completed': level >= 10,
-            'progress': level > 10 ? 10 : level,
-            'target': 10,
-            'reward': 'Special Avatar Frame',
-            'category': 'Progression',
-            'unlockedAt': level >= 10 ? DateTime.now() : null,
-          },
-          {
-            'id': 'level_25',
-            'name': 'Dance Expert',
-            'description': 'Reach level 25',
-            'icon': Icons.workspace_premium,
-            'completed': level >= 25,
-            'progress': level > 25 ? 25 : level,
-            'target': 25,
-            'reward': 'Exclusive Dance Move',
-            'category': 'Progression',
-            'unlockedAt': level >= 25 ? DateTime.now() : null,
-          },
-          {
-            'id': 'level_50',
-            'name': 'Master Dancer',
-            'description': 'Reach level 50',
-            'icon': Icons.celebration,
-            'completed': level >= 50,
-            'progress': level > 50 ? 50 : level,
-            'target': 50,
-            'reward': 'Legendary Title',
-            'category': 'Progression',
-            'unlockedAt': level >= 50 ? DateTime.now() : null,
-          },
-          {
-            'id': 'games_10',
-            'name': 'Consistent Groover',
-            'description': 'Play 10 games',
-            'icon': Icons.repeat,
-            'completed': gamesPlayed >= 10,
-            'progress': gamesPlayed > 10 ? 10 : gamesPlayed,
-            'target': 10,
-            'reward': '25 XP',
-            'category': 'General',
-            'unlockedAt': gamesPlayed >= 10 ? DateTime.now() : null,
-          },
-          {
-            'id': 'games_50',
-            'name': 'Dedicated Dancer',
-            'description': 'Play 50 games',
-            'icon': Icons.local_activity,
-            'completed': gamesPlayed >= 50,
-            'progress': gamesPlayed > 50 ? 50 : gamesPlayed,
-            'target': 50,
-            'reward': 'Special Emote',
-            'category': 'General',
-            'unlockedAt': gamesPlayed >= 50 ? DateTime.now() : null,
-          },
-          {
-            'id': 'games_100',
-            'name': 'Dance Marathoner',
-            'description': 'Play 100 games',
-            'icon': Icons.military_tech,
-            'completed': gamesPlayed >= 100,
-            'progress': gamesPlayed > 100 ? 100 : gamesPlayed,
-            'target': 100,
-            'reward': 'Golden Avatar',
-            'category': 'General',
-            'unlockedAt': gamesPlayed >= 100 ? DateTime.now() : null,
-          },
-          {
-            'id': 'score_1000',
-            'name': 'Score Champion',
-            'description': 'Score 1000+ points in a single game',
-            'icon': Icons.trending_up,
-            'completed': highScore >= 1000,
-            'progress': highScore > 1000 ? 1000 : highScore,
-            'target': 1000,
-            'reward': 'Score Boost',
-            'category': 'Performance',
-            'unlockedAt': highScore >= 1000 ? DateTime.now() : null,
-          },
-          {
-            'id': 'score_5000',
-            'name': 'High Score Hero',
-            'description': 'Score 5000+ points in a single game',
-            'icon': Icons.leaderboard,
-            'completed': highScore >= 5000,
-            'progress': highScore > 5000 ? 5000 : highScore,
-            'target': 5000,
-            'reward': 'Score Multiplier',
-            'category': 'Performance',
-            'unlockedAt': highScore >= 5000 ? DateTime.now() : null,
-          },
-          {
-            'id': 'total_10000',
-            'name': 'Point Collector',
-            'description': 'Reach 10,000 total points',
-            'icon': Icons.star,
-            'completed': totalScore >= 10000,
-            'progress': totalScore > 10000 ? 10000 : totalScore,
-            'target': 10000,
-            'reward': '100 XP',
-            'category': 'Performance',
-            'unlockedAt': totalScore >= 10000 ? DateTime.now() : null,
-          },
-          {
-            'id': 'total_50000',
-            'name': 'Point Master',
-            'description': 'Reach 50,000 total points',
-            'icon': Icons.stars,
-            'completed': totalScore >= 50000,
-            'progress': totalScore > 50000 ? 50000 : totalScore,
-            'target': 50000,
-            'reward': 'Special Effects',
-            'category': 'Performance',
-            'unlockedAt': totalScore >= 50000 ? DateTime.now() : null,
-          },
-          {
-            'id': 'multiplayer_win',
-            'name': 'First Victory',
-            'description': 'Win your first multiplayer match',
-            'icon': Icons.people,
-            'completed': multiplayerWins > 0,
-            'progress': multiplayerWins > 0 ? 1 : 0,
-            'target': 1,
-            'reward': 'Multiplayer Badge',
-            'category': 'Multiplayer',
-            'unlockedAt': multiplayerWins > 0 ? DateTime.now() : null,
-          },
-          {
-            'id': 'multiplayer_10',
-            'name': 'Party Champion',
-            'description': 'Win 10 multiplayer matches',
-            'icon': Icons.emoji_events,
-            'completed': multiplayerWins >= 10,
-            'progress': multiplayerWins > 10 ? 10 : multiplayerWins,
-            'target': 10,
-            'reward': 'Victory Dance',
-            'category': 'Multiplayer',
-            'unlockedAt': multiplayerWins >= 10 ? DateTime.now() : null,
-          },
-          {
-            'id': 'perfect_score',
-            'name': 'Flawless Performance',
-            'description': 'Get a perfect score on any song',
-            'icon': Icons.grade,
-            'completed': perfectScores > 0,
-            'progress': perfectScores > 0 ? 1 : 0,
-            'target': 1,
-            'reward': 'Perfect Score Badge',
-            'category': 'Performance',
-            'unlockedAt': perfectScores > 0 ? DateTime.now() : null,
-          },
-          {
-            'id': 'all_songs_easy',
-            'name': 'Easy Master',
-            'description': 'Complete all songs on Easy difficulty',
-            'icon': Icons.check_circle,
-            'completed': false, // This would need to be calculated based on actual game data
-            'progress': 0,
-            'target': 15, // Assuming 15 songs
-            'reward': 'Easy Master Title',
-            'category': 'Completion',
-            'unlockedAt': null,
-          },
-          {
-            'id': 'all_songs_medium',
-            'name': 'Medium Master',
-            'description': 'Complete all songs on Medium difficulty',
-            'icon': Icons.check_circle_outline,
-            'completed': false,
-            'progress': 0,
-            'target': 15,
-            'reward': 'Medium Master Title',
-            'category': 'Completion',
-            'unlockedAt': null,
-          },
-          {
-            'id': 'all_songs_hard',
-            'name': 'Hard Master',
-            'description': 'Complete all songs on Hard difficulty',
-            'icon': Icons.check_circle_outlined,
-            'completed': false,
-            'progress': 0,
-            'target': 15,
-            'reward': 'Hard Master Title',
-            'category': 'Completion',
-            'unlockedAt': null,
-          },
-          {
-            'id': 'daily_login_7',
-            'name': 'Weekly Dancer',
-            'description': 'Log in for 7 consecutive days',
-            'icon': Icons.calendar_today,
-            'completed': false,
-            'progress': 3, // This would come from actual login tracking
-            'target': 7,
-            'reward': 'Login Streak Bonus',
-            'category': 'General',
-            'unlockedAt': null,
-          },
-          {
-            'id': 'daily_login_30',
-            'name': 'Monthly Dancer',
-            'description': 'Log in for 30 consecutive days',
-            'icon': Icons.calendar_view_month,
-            'completed': false,
-            'progress': 3,
-            'target': 30,
-            'reward': 'Exclusive Avatar',
-            'category': 'General',
-            'unlockedAt': null,
-          },
-          {
-            'id': 'friend_invite',
-            'name': 'Social Butterfly',
-            'description': 'Invite a friend to play',
-            'icon': Icons.person_add,
-            'completed': false,
-            'progress': 0,
-            'target': 1,
-            'reward': 'Friend Bonus',
-            'category': 'Social',
-            'unlockedAt': null,
-          },
-        ];
-      });
+      print('API Response: $response');
+
+      if (response['status'] == 'success') {
+        setState(() {
+          _achievements = List<Map<String, dynamic>>.from(response['achievements'] ?? []);
+        });
+        print('Loaded ${_achievements.length} achievements');
+      } else {
+        setState(() {
+          _errorMessage = response['message'] ?? 'Failed to load achievements';
+        });
+        print('Error: $_errorMessage');
+      }
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to load achievements: ${e.toString()}';
       });
+      print('Exception: $_errorMessage');
     } finally {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+  Future<void> _unlockAchievement(String achievementId) async {
+    try {
+      final response = await ApiService.unlockAchievement(
+          _currentUser['id'].toString(),
+          achievementId
+      );
+
+      if (response['status'] == 'success') {
+        // Refresh achievements
+        _loadAchievements();
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Achievement unlocked! +${response['xp_gained']} XP'),
+              backgroundColor: Colors.green,
+            )
+        );
+
+        // Show level up notification if applicable
+        if (response['leveled_up'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('🎉 Level Up! You\'re now level ${response['new_level']}!'),
+                backgroundColor: Colors.blue,
+                duration: const Duration(seconds: 3),
+              )
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response['message'] ?? 'Failed to unlock achievement'),
+              backgroundColor: Colors.red,
+            )
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          )
+      );
     }
   }
 
@@ -595,7 +396,7 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                achievement['icon'],
+                _getIconFromString(achievement['icon']),
                 color: isCompleted
                     ? Colors.greenAccent
                     : (progress > 0 ? Colors.blueAccent : Colors.grey),
@@ -654,9 +455,33 @@ class _AchievementsScreenState extends State<AchievementsScreen>
             trailing: isCompleted
                 ? const Icon(Icons.check_circle, color: Colors.greenAccent)
                 : const Icon(Icons.lock, color: Colors.grey),
+            onTap: () {
+              if (!isCompleted && progress >= target) {
+                _unlockAchievement(achievement['id'].toString());
+              }
+            },
           ),
         );
       },
     );
+  }
+
+  IconData _getIconFromString(String iconName) {
+    switch (iconName) {
+      case 'star': return Icons.star;
+      case 'trophy': return Icons.emoji_events;
+      case 'celebration': return Icons.celebration;
+      case 'grade': return Icons.grade;
+      case 'check_circle': return Icons.check_circle;
+      case 'local_activity': return Icons.local_activity;
+      case 'military_tech': return Icons.military_tech;
+      case 'trending_up': return Icons.trending_up;
+      case 'leaderboard': return Icons.leaderboard;
+      case 'people': return Icons.people;
+      case 'calendar_today': return Icons.calendar_today;
+      case 'calendar_view_month': return Icons.calendar_view_month;
+      case 'person_add': return Icons.person_add;
+      default: return Icons.star_border;
+    }
   }
 }

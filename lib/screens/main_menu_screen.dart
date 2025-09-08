@@ -14,9 +14,6 @@ import '../services/music_service.dart';
 import 'quickplay_screen.dart';
 import '../services/api_service.dart';
 
-
-
-
 class MainMenuScreen extends StatefulWidget {
   final Map user;
 
@@ -53,6 +50,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   // Scroll controller
   final ScrollController _scrollController = ScrollController();
 
+  // Announcements
+  List<Map<String, dynamic>> _announcements = [];
+  bool _isLoadingAnnouncements = false;
+  bool _showNoAnnouncements = false;
+
   @override
   void initState() {
     super.initState();
@@ -72,10 +74,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       duration: const Duration(milliseconds: 1500),
     )..addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        // Start auto-refresh after initial animation completes
         _startAutoRefresh();
-        // Start carousel auto-scroll
-        _startCarouselAutoScroll();
+        _fetchAnnouncements(); // Only fetch announcements here
       }
     });
 
@@ -97,20 +97,78 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     _initializeMusic();
   }
 
+  // Fetch announcements from API
+  Future<void> _fetchAnnouncements() async {
+    if (_isLoadingAnnouncements) return;
+
+    setState(() {
+      _isLoadingAnnouncements = true;
+      _showNoAnnouncements = false;
+    });
+
+    try {
+      final announcements = await ApiService.getAnnouncements();
+
+      if (announcements.isEmpty) {
+        setState(() {
+          _showNoAnnouncements = true;
+          _announcements = [_createNoAnnouncementCard()];
+        });
+      } else {
+        setState(() {
+          _announcements = List<Map<String, dynamic>>.from(announcements);
+          _showNoAnnouncements = false;
+        });
+      }
+
+      // Start/restart carousel auto-scroll AFTER announcements are loaded
+      _startCarouselAutoScroll();
+    } catch (e) {
+      print('Error loading announcements: $e');
+      setState(() {
+        _showNoAnnouncements = true;
+        _announcements = [_createNoAnnouncementCard()];
+      });
+
+      // Even if there's an error, try to set up carousel
+      _startCarouselAutoScroll();
+    } finally {
+      setState(() {
+        _isLoadingAnnouncements = false;
+      });
+    }
+  }
+
+  Map<String, dynamic> _createNoAnnouncementCard() {
+    return {
+      'title': 'NO ANNOUNCEMENTS',
+      'subtitle': 'Check back later for exciting updates and events!',
+      'date': 'Stay tuned...',
+      'gradient_color_1': '#666666',
+      'gradient_color_2': '#999999',
+      'is_no_announcement': true,
+    };
+  }
+
   // Start automatic carousel scroll
   void _startCarouselAutoScroll() {
-    _carouselTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_carouselController.hasClients) {
-        int nextPage = _currentCarouselIndex + 1;
-        if (nextPage >= 3) nextPage = 0;
+    _carouselTimer?.cancel();
 
-        _carouselController.animateToPage(
-          nextPage,
-          duration: const Duration(milliseconds: 500),
-          curve: Curves.easeInOut,
-        );
-      }
-    });
+    // Only auto-scroll if we have more than one announcement
+    if (_announcements.length > 1 && !_showNoAnnouncements) {
+      _carouselTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+        if (_carouselController.hasClients && mounted) {
+          int nextPage = _currentCarouselIndex + 1;
+          if (nextPage >= _announcements.length) nextPage = 0;
+
+          _carouselController.animateToPage(
+            nextPage,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeInOut,
+          );
+        }
+      });
+    }
   }
 
   // Start automatic background refresh
@@ -145,6 +203,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     if (state == AppLifecycleState.resumed) {
       _musicService.resumeMusic(screenName: 'menu');
       _fetchUserStats();
+      _fetchAnnouncements();
     } else if (state == AppLifecycleState.paused) {
       _musicService.pauseMusic();
     }
@@ -464,7 +523,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         ),
         child: Stack(
           children: [
-            // Background pattern
             Positioned.fill(
               child: Opacity(
                 opacity: 0.1,
@@ -474,13 +532,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
               ),
             ),
 
-            // Content
             Padding(
               padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Song title and artist
                   Text(
                     dance['title'] as String,
                     style: const TextStyle(
@@ -500,7 +556,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                   const SizedBox(height: 8),
 
-                  // Difficulty and coach info
                   Row(
                     children: [
                       Container(
@@ -531,7 +586,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                   const SizedBox(height: 8),
 
-                  // Score and rating
                   Row(
                     children: [
                       const Icon(
@@ -570,7 +624,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                   const Spacer(),
 
-                  // Play button
                   Align(
                     alignment: Alignment.bottomRight,
                     child: Container(
@@ -596,7 +649,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  // Helper method to get difficulty color
   Color _getDifficultyColor(String difficulty) {
     switch (difficulty.toLowerCase()) {
       case 'easy':
@@ -608,6 +660,147 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       default:
         return Colors.grey;
     }
+  }
+
+  Widget _buildAnnouncementCard(int index) {
+    if (_announcements.isEmpty) {
+      return _buildLoadingCard();
+    }
+
+    if (index >= _announcements.length) {
+      return Container();
+    }
+
+    final announcement = _announcements[index];
+    final isNoAnnouncement = announcement['is_no_announcement'] == true;
+
+    Color parseColor(String hexColor) {
+      hexColor = hexColor.replaceAll("#", "");
+      if (hexColor.length == 6) {
+        hexColor = "FF$hexColor";
+      }
+      return Color(int.parse(hexColor, radix: 16));
+    }
+
+    final color1 = parseColor(announcement['gradient_color_1'] ?? '#666666');
+    final color2 = parseColor(announcement['gradient_color_2'] ?? '#999999');
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [color1.withOpacity(0.9), color2.withOpacity(0.9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color1.withOpacity(0.4),
+            blurRadius: 20,
+            spreadRadius: 3,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.1,
+                child: CustomPaint(
+                  painter: _DancePatternPainter(),
+                ),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: isNoAnnouncement ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+                children: [
+                  if (isNoAnnouncement)
+                    const Icon(
+                      Icons.campaign_outlined,
+                      color: Colors.white70,
+                      size: 48,
+                    ),
+
+                  if (isNoAnnouncement) const SizedBox(height: 16),
+
+                  Text(
+                    announcement['title'] ?? 'Announcement',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isNoAnnouncement ? 18 : 20,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    announcement['subtitle'] ?? '',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(isNoAnnouncement ? 0.7 : 0.9),
+                      fontSize: isNoAnnouncement ? 14 : 14,
+                      fontStyle: isNoAnnouncement ? FontStyle.italic : FontStyle.normal,
+                    ),
+                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  if (!isNoAnnouncement)
+                    Row(
+                      mainAxisAlignment: isNoAnnouncement ? MainAxisAlignment.center : MainAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.calendar_today,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          announcement['date'] ?? 'Coming soon...',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [Colors.grey[600]!, Colors.grey[800]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+        ),
+      ),
+    );
   }
 
   @override
@@ -633,7 +826,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     return Scaffold(
       body: Stack(
         children: [
-          // Background with gradient
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -645,20 +837,31 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
-          // Animated background elements
           Positioned.fill(
             child: CustomPaint(
               painter: _BackgroundPainter(animation: _animationController),
             ),
           ),
 
-          // Main content with fixed bottom navigation
           Column(
             children: [
-              // Top section with user info and mute button
               const SizedBox(height: 40),
 
-              // Scrollable content area
+              // Mute button in the top right corner
+              Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16.0),
+                  child: IconButton(
+                    icon: Icon(
+                      _isMuted ? Icons.volume_off : Icons.volume_up,
+                      color: Colors.white,
+                    ),
+                    onPressed: _toggleMute,
+                  ),
+                ),
+              ),
+
               Expanded(
                 child: SingleChildScrollView(
                   controller: _scrollController,
@@ -666,7 +869,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                   child: Column(
                     children: [
                       const SizedBox(height: 20),
-                      // Game title
                       ScaleTransition(
                         scale: _scaleAnimation,
                         child: FadeTransition(
@@ -697,7 +899,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 8),
 
-                      // Subtitle
                       FadeTransition(
                         opacity: _fadeAnimation,
                         child: const Text(
@@ -712,12 +913,13 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 30),
 
-                      // Announcements/Events carousel
                       SizedBox(
                         height: MediaQuery.of(context).size.height * 0.43,
-                        child: PageView.builder(
+                        child: _isLoadingAnnouncements
+                            ? _buildLoadingCard()
+                            : PageView.builder(
                           controller: _carouselController,
-                          itemCount: 3,
+                          itemCount: _announcements.length,
                           onPageChanged: (index) {
                             setState(() {
                               _currentCarouselIndex = index;
@@ -747,37 +949,35 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                         ),
                       ),
 
-                      // Carousel indicators
-                      Container(
-                        height: 10,
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(3, (index) {
-                            return Container(
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _currentCarouselIndex == index
-                                    ? Colors.white
-                                    : Colors.white.withOpacity(0.4),
-                              ),
-                            );
-                          }),
+                      if (_announcements.isNotEmpty && !_showNoAnnouncements)
+                        Container(
+                          height: 10,
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(_announcements.length, (index) {
+                              return Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.symmetric(horizontal: 4),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _currentCarouselIndex == index
+                                      ? Colors.white
+                                      : Colors.white.withOpacity(0.4),
+                                ),
+                              );
+                            }),
+                          ),
                         ),
-                      ),
 
                       const SizedBox(height: 20),
 
-                      // Quick Practice Section
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Section Title
                             const Text(
                               "GAME MODE",
                               style: TextStyle(
@@ -789,10 +989,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             ),
                             const SizedBox(height: 12),
 
-                            // Quick practice cards
                             Row(
                               children: [
-                                // Quick Play Card
                                 Expanded(
                                   child: GestureDetector(
                                     onTap: () {
@@ -817,7 +1015,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                       ),
                                       child: Stack(
                                         children: [
-                                          // Background pattern
                                           Positioned.fill(
                                             child: Opacity(
                                               opacity: 0.1,
@@ -827,7 +1024,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                             ),
                                           ),
 
-                                          // Content
                                           Padding(
                                             padding: const EdgeInsets.all(12.0),
                                             child: Column(
@@ -865,7 +1061,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 ),
                                 const SizedBox(width: 12),
 
-                                // Practice Card
                                 Expanded(
                                   child: GestureDetector(
                                     onTap: () {
@@ -890,7 +1085,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                       ),
                                       child: Stack(
                                         children: [
-                                          // Background pattern
                                           Positioned.fill(
                                             child: Opacity(
                                               opacity: 0.1,
@@ -900,7 +1094,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                             ),
                                           ),
 
-                                          // Content
                                           Padding(
                                             padding: const EdgeInsets.all(12.0),
                                             child: Column(
@@ -941,7 +1134,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             const SizedBox(height: 12),
 
-                            // Multiplayer Card (functional)
                             GestureDetector(
                               onTap: () {
                                 goToMultiplayer(context);
@@ -965,7 +1157,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 ),
                                 child: Stack(
                                   children: [
-                                    // Background pattern
                                     Positioned.fill(
                                       child: Opacity(
                                         opacity: 0.1,
@@ -975,7 +1166,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                       ),
                                     ),
 
-                                    // Content
                                     Padding(
                                       padding: const EdgeInsets.all(12.0),
                                       child: Column(
@@ -1016,13 +1206,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 20),
 
-                      // Featured Dance Section (carousel)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Section Title
                             const Text(
                               "FEATURED DANCES",
                               style: TextStyle(
@@ -1034,7 +1222,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             ),
                             const SizedBox(height: 12),
 
-                            // Featured Dance Carousel
                             SizedBox(
                               height: 160,
                               child: PageView.builder(
@@ -1051,7 +1238,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                               ),
                             ),
 
-                            // Carousel indicators
                             Container(
                               height: 10,
                               padding: const EdgeInsets.only(top: 10),
@@ -1076,7 +1262,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                         ),
                       ),
 
-                      // Add some bottom padding to ensure content doesn't get hidden behind navigation
                       const SizedBox(height: 100),
                     ],
                   ),
@@ -1085,8 +1270,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ],
           ),
 
-          // Fixed bottom navigation
-          // Fixed bottom navigation
           Positioned(
             left: 0,
             right: 0,
@@ -1188,223 +1371,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  Widget _buildAnnouncementCard(int index) {
-    final List<Map<String, dynamic>> announcements = [
-      {
-        'title': 'GAME DEPLOYMENT',
-        'subtitle': 'Join the biggest dance event of the year!',
-        'date': 'Comming soon...',
-        'gradient': [const Color(0xFFFFD700), const Color(0xFFFF8C00)], // Gold to Orange
-      },
-      {
-        'title': 'SONGS ADDED',
-        'subtitle': 'Always check the updates New dance comming soon ',
-        'date': 'Comming soon...',
-        'gradient': [const Color(0xFF00BFFF), const Color(0xFF1E90FF)], // Deep Sky Blue to Dodger Blue
-      },
-      {
-        'title': 'COMPETITION',
-        'subtitle': 'Weekly challenges with amazing prizes',
-        'date': 'Comming soon...',
-        'gradient': [const Color(0xFF32CD32), const Color(0xFF228B22)], // Lime Green to Forest Green
-      },
-    ];
-
-    final announcement = announcements[index];
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          colors: [
-            (announcement['gradient'][0] as Color).withOpacity(0.9),
-            (announcement['gradient'][1] as Color).withOpacity(0.9),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: (announcement['gradient'][0] as Color).withOpacity(0.4),
-            blurRadius: 20,
-            spreadRadius: 3,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          children: [
-            // Background pattern with reduced opacity
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.1,
-                child: CustomPaint(
-                  painter: _DancePatternPainter(),
-                ),
-              ),
-            ),
-
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title
-                  Text(
-                    announcement['title'] as String,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Subtitle
-                  Text(
-                    announcement['subtitle'] as String,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
-                      fontSize: 14,
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Date
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.calendar_today,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        announcement['date'] as String,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUserProfileCard(int level, int xp, int xpRequired, double progress, String name) {
-    return FadeTransition(
-      opacity: _fadeAnimation,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(
-            colors: [Colors.purple.withOpacity(0.6), Colors.blue.withOpacity(0.6)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
-        ),
-        child: Row(
-          children: [
-            // Level badge
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [Colors.amber, Colors.orange],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.amber.withOpacity(0.4),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  level.toString(),
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  // XP progress bar
-                  Stack(
-                    children: [
-                      Container(
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                      Container(
-                        height: 6,
-                        width: MediaQuery.of(context).size.width * 0.5 * progress,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Colors.lightBlueAccent, Colors.blueAccent],
-                          ),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "$xp/$xpRequired XP",
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBottomButton({
     required IconData icon,
     required String label,
@@ -1436,7 +1402,6 @@ class _DancePatternPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 
-    // Draw some dance pattern lines
     final path = Path();
     final step = 20.0;
 
@@ -1452,7 +1417,6 @@ class _DancePatternPainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Draw some random dance icons
     final iconPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
@@ -1471,8 +1435,6 @@ class _DancePatternPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-
-// Custom painter for carousel glow effect
 class _CarouselGlowPainter extends CustomPainter {
   final int index;
   final double opacity;
@@ -1484,11 +1446,10 @@ class _CarouselGlowPainter extends CustomPainter {
     final centerX = size.width / 2;
     final centerY = size.height / 2;
 
-    // Define different glow colors for each carousel item
     final List<Color> glowColors = [
-      const Color(0x30FFD700), // Gold for first item
-      const Color(0x3000BFFF), // Blue for second item
-      const Color(0x30FF4500), // Orange-red for third item
+      const Color(0x30FFD700),
+      const Color(0x3000BFFF),
+      const Color(0x30FF4500),
     ];
 
     final paint = Paint()
@@ -1514,8 +1475,6 @@ class _CarouselGlowPainter extends CustomPainter {
   }
 }
 
-
-// Custom painter for background animation
 class _BackgroundPainter extends CustomPainter {
   final Animation<double> animation;
 
@@ -1553,7 +1512,6 @@ class _BackgroundPainter extends CustomPainter {
       paint2,
     );
 
-    // Draw some animated particles
     final particleCount = 20;
     final particlePaint = Paint()..color = Colors.white.withOpacity(0.1);
 

@@ -8,6 +8,88 @@ import 'package:http/http.dart' as http;
 class ApiService {
   static const String baseUrl = "http://192.168.1.9/dancing";
 
+
+  // In ApiService class
+  static Future<Map<String, dynamic>> getUserAchievements(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/achievements.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'user_id': userId}),
+      ).timeout(const Duration(seconds: 10));
+
+      print('Achievements API Response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {
+          'status': 'error',
+          'message': 'Server error: ${response.statusCode}'
+        };
+      }
+    } on TimeoutException {
+      return {'status': 'error', 'message': 'Request timeout'};
+    } on http.ClientException catch (e) {
+      return {'status': 'error', 'message': 'Network error: ${e.message}'};
+    } on FormatException catch (e) {
+      return {'status': 'error', 'message': 'Invalid response format: ${e.toString()}'};
+    } catch (e) {
+      return {'status': 'error', 'message': 'Unexpected error: ${e.toString()}'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> unlockAchievement(String userId, String achievementId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/unlock_achievement.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'user_id': userId,
+          'achievement_id': achievementId,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      print('Unlock Achievement API Response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {
+          'status': 'error',
+          'message': 'Server error: ${response.statusCode}'
+        };
+      }
+    } on TimeoutException {
+      return {'status': 'error', 'message': 'Request timeout'};
+    } on http.ClientException catch (e) {
+      return {'status': 'error', 'message': 'Network error: ${e.message}'};
+    } on FormatException catch (e) {
+      return {'status': 'error', 'message': 'Invalid response format: ${e.toString()}'};
+    } catch (e) {
+      return {'status': 'error', 'message': 'Unexpected error: ${e.toString()}'};
+    }
+  }
+
+
+  static Future<List<dynamic>> getAnnouncements() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/announcements.php'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['announcements'] ?? [];
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching announcements: $e');
+      return [];
+    }
+  }
+
   // LOGIN
   static Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await http.post(
