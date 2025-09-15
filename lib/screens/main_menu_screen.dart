@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techdancing/screens/pactice_mode_screen.dart';
 import 'package:techdancing/screens/profile_Screen.dart';
+import 'create_dance_screen.dart';
 import 'login_screen.dart';
 import 'multiplayer_screen.dart';
 import 'leaderboard_screen.dart';
@@ -378,6 +379,30 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
           const end = (Offset.zero);
+          const curve = Curves.easeInOut;
+
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    ).then((_) {
+      _musicService.resumeMusic(screenName: 'menu');
+      _fetchUserStats();
+    });
+  }
+
+  void _goToCreateDance(BuildContext context) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            CreateDanceScreen(userId: _currentUser['id'].toString()),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
           const curve = Curves.easeInOut;
 
           var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
@@ -848,19 +873,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
               const SizedBox(height: 40),
 
               // Mute button in the top right corner
-              Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 16.0),
-                  child: IconButton(
-                    icon: Icon(
-                      _isMuted ? Icons.volume_off : Icons.volume_up,
-                      color: Colors.white,
-                    ),
-                    onPressed: _toggleMute,
-                  ),
-                ),
-              ),
+
 
               Expanded(
                 child: SingleChildScrollView(
@@ -1134,16 +1147,88 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             const SizedBox(height: 12),
 
+                            // Multiplayer button
+                            // GestureDetector(
+                            //   onTap: () {
+                            //     goToMultiplayer(context);
+                            //   },
+                            //   child: Container(
+                            //     height: 120,
+                            //     decoration: BoxDecoration(
+                            //       borderRadius: BorderRadius.circular(12),
+                            //       gradient: const LinearGradient(
+                            //         colors: [Color(0xFF9C27B0), Color(0xFF6A1B9A)],
+                            //         begin: Alignment.topLeft,
+                            //         end: Alignment.bottomRight,
+                            //       ),
+                            //       boxShadow: [
+                            //         BoxShadow(
+                            //           color: Colors.black.withOpacity(0.3),
+                            //           blurRadius: 8,
+                            //           offset: const Offset(0, 4),
+                            //         ),
+                            //       ],
+                            //     ),
+                            //     child: Stack(
+                            //       children: [
+                            //         Positioned.fill(
+                            //           child: Opacity(
+                            //             opacity: 0.1,
+                            //             child: CustomPaint(
+                            //               painter: _DancePatternPainter(),
+                            //             ),
+                            //           ),
+                            //         ),
+                            //
+                            //         Padding(
+                            //           padding: const EdgeInsets.all(12.0),
+                            //           child: Column(
+                            //             crossAxisAlignment: CrossAxisAlignment.start,
+                            //             children: [
+                            //               const Icon(
+                            //                 Icons.group,
+                            //                 color: Colors.white,
+                            //                 size: 24,
+                            //               ),
+                            //               const SizedBox(height: 8),
+                            //               const Text(
+                            //                 "Multiplayer",
+                            //                 style: TextStyle(
+                            //                   color: Colors.white,
+                            //                   fontSize: 16,
+                            //                   fontWeight: FontWeight.bold,
+                            //                 ),
+                            //               ),
+                            //               const Spacer(),
+                            //               Text(
+                            //                 "Play with friends",
+                            //                 style: TextStyle(
+                            //                   color: Colors.white.withOpacity(0.8),
+                            //                   fontSize: 12,
+                            //                 ),
+                            //               ),
+                            //             ],
+                            //           ),
+                            //         ),
+                            //       ],
+                            //     ),
+                            //   ),
+                            // ),
+
+                            const SizedBox(height: 12),
+
+                            // Create Custom Dance button
                             GestureDetector(
                               onTap: () {
+                                // _goToCreateDance(context);
                                 goToMultiplayer(context);
                               },
                               child: Container(
-                                height: 120,
+                                height: 80, // Slightly smaller height
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(12),
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFF9C27B0), Color(0xFF6A1B9A)],
+                                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
                                   ),
@@ -1166,17 +1251,16 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                       ),
                                     ),
 
-                                    Padding(
-                                      padding: const EdgeInsets.all(12.0),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                    Center(
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           const Icon(
                                             Icons.group,
                                             color: Colors.white,
                                             size: 24,
                                           ),
-                                          const SizedBox(height: 8),
+                                          const SizedBox(width: 8),
                                           const Text(
                                             "Multiplayer",
                                             style: TextStyle(
@@ -1185,12 +1269,65 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                          const Spacer(),
-                                          Text(
-                                            "Play with friends",
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            GestureDetector(
+                              onTap: () {
+                                _goToCreateDance(context);
+                                // goToMultiplayer(context);
+                              },
+                              child: Container(
+                                height: 80, // Slightly smaller height
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: Opacity(
+                                        opacity: 0.1,
+                                        child: CustomPaint(
+                                          painter: _DancePatternPainter(),
+                                        ),
+                                      ),
+                                    ),
+
+                                    Center(
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons.add,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            "Create Custom Dance move",
                                             style: TextStyle(
-                                              color: Colors.white.withOpacity(0.8),
-                                              fontSize: 12,
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                         ],

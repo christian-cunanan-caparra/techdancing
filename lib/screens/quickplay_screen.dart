@@ -26,6 +26,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
   Timer? _timeoutTimer;
   String? _roomCode;
   int _secondsRemaining = 60;
+  bool _matchFound = false;
 
   @override
   void initState() {
@@ -70,6 +71,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
       _isSearching = true;
       _statusMessage = "Finding opponent...";
       _secondsRemaining = 60;
+      _matchFound = false;
     });
 
     _startTimeoutTimer();
@@ -78,9 +80,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
       final result = await ApiService.quickPlayMatch(widget.user['id'].toString());
 
       if (result['status'] == 'success') {
-        _timeoutTimer?.cancel();
-        _roomCode = result['room_code'];
-        _navigateToDanceSelection();
+        _handleMatchFound(result['room_code']);
       } else if (result['status'] == 'waiting') {
         _roomCode = result['room_code'];
         setState(() {
@@ -88,19 +88,43 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
         });
         _startPollingForOpponent();
       } else {
-        _timeoutTimer?.cancel();
-        setState(() {
-          _isSearching = false;
-          _statusMessage = result['message'] ?? "Failed to find match";
-        });
+        _handleMatchmakingError(result['message'] ?? "Failed to find match");
       }
     } catch (e) {
-      _timeoutTimer?.cancel();
-      setState(() {
-        _isSearching = false;
-        _statusMessage = "Connection error";
-      });
+      _handleMatchmakingError("Connection error");
     }
+  }
+
+  void _handleMatchFound(String roomCode) {
+    if (!mounted) return;
+
+    _timeoutTimer?.cancel();
+    _searchTimer?.cancel();
+
+    setState(() {
+      _roomCode = roomCode;
+      _matchFound = true;
+      _statusMessage = "Match found!";
+    });
+
+    // Short delay before navigation to show success message
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        _navigateToDanceSelection();
+      }
+    });
+  }
+
+  void _handleMatchmakingError(String message) {
+    if (!mounted) return;
+
+    _timeoutTimer?.cancel();
+    _searchTimer?.cancel();
+
+    setState(() {
+      _isSearching = false;
+      _statusMessage = message;
+    });
   }
 
   void _startTimeoutTimer() {
@@ -131,7 +155,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
   }
 
   void _startPollingForOpponent() {
-    _searchTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+    _searchTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       if (!mounted || _roomCode == null) {
         timer.cancel();
         return;
@@ -140,20 +164,25 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
       try {
         final status = await ApiService.checkRoomStatus(_roomCode!);
 
-        if (status['status'] == 'success' &&
-            status['room'] != null &&
-            status['room']['player2_id'] != null) {
-          timer.cancel();
-          _timeoutTimer?.cancel();
-          if (mounted) {
-            _navigateToDanceSelection();
+        if (status['status'] == 'success' && status['room'] != null) {
+          final room = status['room'];
+
+          // Check if room is ready (both players present)
+          if (room['player1_id'] != null && room['player2_id'] != null) {
+            timer.cancel();
+            _timeoutTimer?.cancel();
+            if (mounted) {
+              _handleMatchFound(_roomCode!);
+            }
           }
         }
       } catch (e) {
         print('Polling error: $e');
+        // Don't stop polling on error, just try again next cycle
       }
     });
   }
+
   void _navigateToDanceSelection() {
     if (!mounted || _roomCode == null) return;
 
@@ -201,6 +230,123 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
     _startMatchmaking();
   }
 
+  Widget _buildStatusIcon() {
+    if (_matchFound) {
+      return const Icon(
+        Icons.check_circle,
+        size: 80,
+        color: Colors.greenAccent,
+      );
+    } else if (_isSearching) {
+      return FadeTransition(
+        opacity: _fadeAnimation,
+        child: ScaleTransition(
+          scale: _scaleAnimation,
+          child: const Icon(
+            Icons.search,
+            size: 80,
+            color: Colors.cyanAccent,
+          ),
+        ),
+      );
+    } else {
+      return const Icon(
+        Icons.search_off,
+        size: 80,
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Widget _buildActionButtons() {
+    if (_isSearching) {
+      return ElevatedButton(
+        onPressed: _cancelSearch,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.redAccent.withOpacity(0.8),
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+        ),
+        child: const Text(
+          "CANCEL",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      );
+    } else if (_statusMessage.contains("No match found")) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(
+            onPressed: _tryAgain,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyanAccent.withOpacity(0.8),
+              padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
+            ),
+            child: const Text(
+              "TRY AGAIN",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          const SizedBox(width: 20),
+          ElevatedButton(
+            onPressed: _cancelSearch,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.withOpacity(0.8),
+              padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
+            ),
+            child: const Text(
+              "BACK",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (_matchFound) {
+      return const CircularProgressIndicator(
+        valueColor: AlwaysStoppedAnimation<Color>(Colors.greenAccent),
+      );
+    } else {
+      return ElevatedButton(
+        onPressed: _tryAgain,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.cyanAccent.withOpacity(0.8),
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+        ),
+        child: const Text(
+          "TRY AGAIN",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -221,24 +367,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_isSearching)
-                  FadeTransition(
-                    opacity: _fadeAnimation,
-                    child: ScaleTransition(
-                      scale: _scaleAnimation,
-                      child: const Icon(
-                        Icons.search,
-                        size: 80,
-                        color: Colors.cyanAccent,
-                      ),
-                    ),
-                  )
-                else
-                  const Icon(
-                    Icons.search_off,
-                    size: 80,
-                    color: Colors.redAccent,
-                  ),
+                _buildStatusIcon(),
 
                 const SizedBox(height: 30),
 
@@ -265,75 +394,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
 
                 const SizedBox(height: 40),
 
-                if (_isSearching)
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                  ),
-
-                const SizedBox(height: 30),
-
-                if (_isSearching)
-                  ElevatedButton(
-                    onPressed: _cancelSearch,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.redAccent.withOpacity(0.8),
-                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                    child: const Text(
-                      "CANCEL",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  )
-                else if (_statusMessage.contains("No match found"))
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        onPressed: _tryAgain,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.cyanAccent.withOpacity(0.8),
-                          padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                        child: const Text(
-                          "TRY AGAIN",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      ElevatedButton(
-                        onPressed: _cancelSearch,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent.withOpacity(0.8),
-                          padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                        child: const Text(
-                          "BACK",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                _buildActionButtons(),
               ],
             ),
           ),

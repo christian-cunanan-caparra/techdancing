@@ -32,13 +32,20 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
   bool _isCopied = false;
   Map<String, dynamic> _roomData = {};
   List<dynamic> _players = [];
+  bool _isReady = false;
+  bool _bothReady = false;
+  bool _startingGame = false;
+  bool _player1Ready = false;
+  bool _player2Ready = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _startPollingRoom();
     _initializeMusic();
+    _resetReadyStatus().then((_) {
+      _startPollingRoom();
+    });
 
     _controller = AnimationController(
       vsync: this,
@@ -75,8 +82,22 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
     });
   }
 
+  Future<void> _resetReadyStatus() async {
+    try {
+      await ApiService.resetReadyStatus(widget.roomCode);
+      setState(() {
+        _isReady = false;
+        _bothReady = false;
+        _player1Ready = false;
+        _player2Ready = false;
+      });
+    } catch (e) {
+      print('Error resetting ready status: $e');
+    }
+  }
+
   void _startPollingRoom() {
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       try {
         final result = await ApiService.checkRoomStatus(widget.roomCode);
 
@@ -102,43 +123,20 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
             }
           });
 
-          // Safely access room data with null checks
           final player2Id = _roomData['player2_id'];
-          final danceId = _roomData['dance_id'];
           final gameType = result['game_type'] ?? 'multiplayer';
 
-          if (gameType == 'multiplayer') {
-            if (widget.isHost && player2Id != null) {
-              _timer?.cancel();
-              _musicService.pauseMusic(rememberToResume: false);
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SelectDanceScreen(
-                    user: widget.user,
-                    roomCode: widget.roomCode,
-                  ),
-                ),
-              );
-            }
+          // Check ready status regardless of player count
+          final readyResult = await ApiService.checkBothReady(widget.roomCode);
+          if (readyResult['status'] == 'success') {
+            setState(() {
+              _player1Ready = readyResult['player1_ready'] ?? false;
+              _player2Ready = readyResult['player2_ready'] ?? false;
+              _bothReady = readyResult['both_ready'] ?? false;
+            });
 
-            if (!widget.isHost && danceId != null) {
-              _timer?.cancel();
-              _musicService.pauseMusic(rememberToResume: false);
-              // Safely parse danceId
-              final parsedDanceId = int.tryParse(danceId.toString()) ?? 0;
-              if (parsedDanceId > 0) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => GameplayScreen(
-                      danceId: parsedDanceId,
-                      roomCode: widget.roomCode,
-                      userId: widget.user['id']?.toString() ?? '',
-                    ),
-                  ),
-                );
-              }
+            if (readyResult['both_ready'] == true && !_startingGame) {
+              _startGameInstantly();
             }
           }
         }
@@ -146,6 +144,62 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
         print('Error in polling: $e');
       }
     });
+  }
+
+  Future<void> _setReadyStatus(bool isReady) async {
+    try {
+      final result = await ApiService.setReadyStatus(
+          widget.roomCode,
+          widget.user['id'].toString(),
+          isReady
+      );
+
+      if (result['status'] == 'success') {
+        setState(() {
+          _isReady = isReady;
+        });
+
+        // Immediately check if both players are ready
+        final readyResult = await ApiService.checkBothReady(widget.roomCode);
+        if (readyResult['status'] == 'success') {
+          setState(() {
+            _player1Ready = readyResult['player1_ready'] ?? false;
+            _player2Ready = readyResult['player2_ready'] ?? false;
+            _bothReady = readyResult['both_ready'] ?? false;
+          });
+
+          if (readyResult['both_ready'] == true && !_startingGame) {
+            _startGameInstantly();
+          }
+        }
+      } else {
+        print('Failed to set ready status: ${result['message']}');
+      }
+    } catch (e) {
+      print('Error setting ready status: $e');
+    }
+  }
+
+  void _startGameInstantly() {
+    if (_startingGame) return;
+
+    setState(() {
+      _startingGame = true;
+    });
+
+    _timer?.cancel();
+    _musicService.pauseMusic(rememberToResume: false);
+
+    // Navigate immediately without delay
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SelectDanceScreen(
+          user: widget.user,
+          roomCode: widget.roomCode,
+        ),
+      ),
+    );
   }
 
   void _toggleMute() {
@@ -175,16 +229,27 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
     Navigator.pop(context);
   }
 
+  Widget _buildPlayerStatusIndicator(bool isReady) {
+    return Container(
+      width: 12,
+      height: 12,
+      margin: const EdgeInsets.only(left: 8),
+      decoration: BoxDecoration(
+        color: isReady ? Colors.green : Colors.grey,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Safely access user properties with null checks
     final userName = widget.user['name']?.toString() ?? 'Player';
     final userId = widget.user['id']?.toString() ?? '';
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: Text("$userName's Waiting Room"), // Use safe variable
+        title: Text("$userName's Waiting Room"),
         backgroundColor: Colors.transparent,
         elevation: 0,
         foregroundColor: Colors.white,
@@ -220,7 +285,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
             Container(
               margin: const EdgeInsets.only(top: 80, bottom: 10),
               child: Text(
-                "Welcome, $userName!", // Use safe variable
+                "Welcome, $userName!",
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 20,
@@ -291,6 +356,34 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
               ),
             ),
 
+            // Ready button (only show when both players are present)
+            if (_players.length >= 2 && !_bothReady)
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                child: ElevatedButton(
+                  onPressed: _isReady
+                      ? null
+                      : () => _setReadyStatus(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isReady
+                        ? Colors.green.withOpacity(0.5)
+                        : Colors.cyanAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                  ),
+                  child: Text(
+                    _isReady ? "READY!" : "I'M READY",
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+
             // Players list
             Expanded(
               child: Container(
@@ -343,6 +436,8 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
                             final playerId = player['id']?.toString() ?? '';
                             final playerName = player['name']?.toString() ?? 'Player';
                             final isCurrentUser = playerId == userId;
+                            final isPlayer1 = index == 0;
+                            final isReady = isPlayer1 ? _player1Ready : _player2Ready;
 
                             return Container(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -376,13 +471,18 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          playerName, // Use safe variable
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w500,
-                                          ),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              playerName,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            _buildPlayerStatusIndicator(isReady),
+                                          ],
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
@@ -429,11 +529,13 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
               child: Column(
                 children: [
                   Text(
-                    widget.isHost
-                        ? _players.length < 2
+                    _bothReady
+                        ? "Starting game now!"
+                        : _players.length < 2
                         ? "Waiting for another player to join..."
-                        : "Player joined! Preparing to select dance..."
-                        : "Waiting for host to choose a dance...",
+                        : _isReady
+                        ? "Waiting for other player to be ready..."
+                        : "Press READY when you're prepared to start!",
                     style: const TextStyle(color: Colors.white70, fontSize: 14),
                     textAlign: TextAlign.center,
                   ),

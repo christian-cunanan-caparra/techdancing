@@ -351,14 +351,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             style: const TextStyle(color: Colors.white),
           ),
         )
-            : Column(
-          children: [
-            const SizedBox(height: 8),
-            _buildSeasonEndBanner(),
-            const SizedBox(height: 8),
-            _buildTopThreePlayers(),
-            Expanded(
-              child: ListView.separated(
+            : SingleChildScrollView( // Wrap everything in a SingleChildScrollView
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              _buildSeasonEndBanner(),
+              const SizedBox(height: 8),
+              _buildTopThreePlayers(),
+              ListView.separated(
+                physics: const NeverScrollableScrollPhysics(), // Disable inner scrolling
+                shrinkWrap: true, // Important for nested ListView
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 itemCount: leaderboardData.length,
                 separatorBuilder: (context, index) => const SizedBox(height: 8),
@@ -470,8 +472,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   );
                 },
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

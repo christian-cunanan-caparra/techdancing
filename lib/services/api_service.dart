@@ -1,4 +1,3 @@
-// DELETE THIS ENTIRE SECTION FROM gameplay_screen.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
@@ -349,6 +348,159 @@ class ApiService {
       return {'status': 'error', 'message': e.toString()};
     }
   }
+
+
+  static Future<Map<String, dynamic>> setStartTime(String roomCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/set_start_time.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'room_code': roomCode}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to set start time'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getStartTime(String roomCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/get_start_time.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'room_code': roomCode}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to get start time'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> setReadyStatus(String roomCode, String playerId, bool isReady) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/set_ready_status.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'room_code': roomCode,
+          'player_id': playerId,
+          'is_ready': isReady
+        }),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to set ready status'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> checkBothReady(String roomCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/check_both_ready.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'room_code': roomCode}),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to check ready status'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> resetReadyStatus(String roomCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/reset_ready_status.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'room_code': roomCode}),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to reset ready status'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': e.toString()};
+    }
+  }
+
+  // In your ApiService class
+  static Future<Map<String, dynamic>> createCustomDance(String userId, String name, String description) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/create_custom_dance.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'user_id': userId,
+        'name': name,
+        'description': description,
+      }),
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> addCustomStep(
+      String danceId,
+      int stepNumber,
+      String name,
+      String description,
+      int duration,
+      String lyrics,
+      Map<String, dynamic> poseData
+      ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/add_custom_step.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'dance_id': danceId,
+        'step_number': stepNumber,
+        'name': name,
+        'description': description,
+        'duration': duration,
+        'lyrics': lyrics,
+        'pose_data': poseData,
+      }),
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> getCustomDances(String userId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/get_custom_dances.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_id': userId}),
+    );
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> getCustomDanceSteps(String danceId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/get_custom_dance_steps.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'dance_id': danceId}),
+    );
+    return jsonDecode(response.body);
+  }
+
 
 }
 

@@ -71,19 +71,18 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
     if (dances.isEmpty) return;
 
     try {
-      // Let the server select a random dance to ensure both players get the same one
+      // Immediately select a dance without any waiting
       final result = await ApiService.selectRandomDance(widget.roomCode);
 
       if (result['status'] == 'success') {
         final danceId = result['dance_id'];
         await _handleDanceSelection(danceId);
       } else {
-        // If server selection fails, use a deterministic approach based on room code
+        // Fallback logic
         final roomCodeHash = widget.roomCode.hashCode;
         final randomIndex = roomCodeHash.abs() % dances.length;
         final selectedDance = dances[randomIndex];
 
-        // Still try to inform the server of our selection
         await ApiService.selectDance(widget.roomCode, selectedDance['id']);
         await _handleDanceSelection(selectedDance['id']);
       }
@@ -96,7 +95,6 @@ class _SelectDanceScreenState extends State<SelectDanceScreen>
       await _handleDanceSelection(selectedDance['id']);
     }
   }
-
   Future<void> _handleDanceSelection(int danceId) async {
     setState(() {
       _selectedDanceId = danceId;

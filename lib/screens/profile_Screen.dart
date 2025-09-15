@@ -20,6 +20,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   String _errorMessage = '';
   int _userRank = 0;
   List<dynamic> _rankingData = [];
+  bool _isPopping = false; // Added flag to track if we're popping
 
   @override
   void initState() {
@@ -196,19 +197,12 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.withOpacity(0.5), Colors.blue.withOpacity(0.3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.purpleAccent.withOpacity(0.3),
+          width: 1,
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,6 +341,27 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
+  // Modified back button handler with reverse animation
+  Future<void> _handleBackButton() async {
+    if (_isPopping) return; // Prevent multiple pops
+
+    setState(() {
+      _isPopping = true;
+    });
+
+    // Reverse the animation before popping
+    await _animationController.reverse();
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MainMenuScreen(user: _currentUser),
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -366,152 +381,153 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     int totalScore = _safeParseInt(_currentUser['total_score']);
     String joinDate = _safeParseString(_currentUser['created_at'], defaultValue: 'Unknown');
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0523),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
+    return PopScope(
+      canPop: false, // Disable default back button behavior
+      onPopInvoked: (didPop) {
+        if (!didPop) {
+          _handleBackButton();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0D0B1E),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF0D0B1E), Color(0xFF1A093B)],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Stack(
-                children: [
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Header with back button
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_back, color: Colors.white),
-                              onPressed: () {
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => MainMenuScreen(user: _currentUser),
-                                  ),
-                                );
-                              },
-                            ),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'PROFILE',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.5,
+          child: SafeArea(
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header with back button
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                                onPressed: _handleBackButton,
                               ),
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              icon: const Icon(Icons.edit, color: Colors.white),
-                              onPressed: () {
-                                _showEditProfileDialog(context);
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
-                              onPressed: () {
-                                _loadUserStats();
-                                _loadRankingData();
-                              },
-                              tooltip: 'Refresh Stats',
-                            ),
-                          ],
-                        ),
-
-                        // Error message
-                        if (_errorMessage.isNotEmpty)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.red),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error, color: Colors.red),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage,
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'PROFILE',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.5,
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 18),
-                                  onPressed: () {
-                                    setState(() {
-                                      _errorMessage = '';
-                                    });
-                                  },
-                                ),
-                              ],
-                            ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.white),
+                                onPressed: () {
+                                  _showEditProfileDialog(context);
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.refresh, color: Colors.white),
+                                onPressed: () {
+                                  _loadUserStats();
+                                  _loadRankingData();
+                                },
+                                tooltip: 'Refresh Stats',
+                              ),
+                            ],
                           ),
 
-                        const SizedBox(height: 20),
-
-                        // User Profile Card
-                        _buildProfileCard(name, email, joinDate, level, xp, xpRequired, progress),
-
-                        const SizedBox(height: 20),
-
-                        // Ranking Section
-                        _buildRankingCard(),
-
-                        const SizedBox(height: 20),
-
-                        // Statistics Section
-                        _buildStatisticsCard(gamesPlayed, highScore, totalScore),
-
-                        const SizedBox(height: 20),
-
-                        // Achievements Section
-                        _buildAchievementsCard(),
-
-                        const SizedBox(height: 30),
-                      ],
-                    ),
-                  ),
-
-                  // Loading overlay
-                  if (_isLoading)
-                    Container(
-                      color: Colors.black.withOpacity(0.7),
-                      child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                            ),
-                            SizedBox(height: 20),
-                            Text(
-                              "Loading profile...",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
+                          // Error message
+                          if (_errorMessage.isNotEmpty)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error, color: Colors.red),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage,
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 18),
+                                    onPressed: () {
+                                      setState(() {
+                                        _errorMessage = '';
+                                      });
+                                    },
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
+
+                          const SizedBox(height: 20),
+
+                          // User Profile Card
+                          _buildProfileCard(name, email, joinDate, level, xp, xpRequired, progress),
+
+                          const SizedBox(height: 20),
+
+                          // Ranking Section
+                          _buildRankingCard(),
+
+                          const SizedBox(height: 20),
+
+                          // Statistics Section
+                          _buildStatisticsCard(gamesPlayed, highScore, totalScore),
+
+                          const SizedBox(height: 20),
+
+                          // Achievements Section
+                          _buildAchievementsCard(),
+
+                          const SizedBox(height: 30),
+                        ],
                       ),
                     ),
-                ],
+
+                    // Loading overlay
+                    if (_isLoading)
+                      Container(
+                        color: Colors.black.withOpacity(0.7),
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                              ),
+                              SizedBox(height: 20),
+                              Text(
+                                "Loading profile...",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -525,19 +541,12 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.withOpacity(0.5), Colors.blue.withOpacity(0.3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.purpleAccent.withOpacity(0.3),
+          width: 1,
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -705,19 +714,12 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.withOpacity(0.5), Colors.blue.withOpacity(0.3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.amberAccent.withOpacity(0.3),
+          width: 1,
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -841,19 +843,12 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.withOpacity(0.5), Colors.blue.withOpacity(0.3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: Colors.greenAccent.withOpacity(0.3),
+          width: 1,
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

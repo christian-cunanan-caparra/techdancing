@@ -79,8 +79,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         });
       }
     } catch (e) {
-      // Silent error - don't disrupt user experience for saved credentials
+      print("Login error: $e"); // 👈 Add this
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Network error. Please try again.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
+
   }
 
   void loginUser() async {
