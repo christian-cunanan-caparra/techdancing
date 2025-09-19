@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'dart:ui';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/api_service.dart';
 
 class GameResultScreen extends StatefulWidget {
@@ -25,20 +27,48 @@ class GameResultScreen extends StatefulWidget {
   State<GameResultScreen> createState() => _GameResultScreenState();
 }
 
-class _GameResultScreenState extends State<GameResultScreen> {
+class _GameResultScreenState extends State<GameResultScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = false;
   bool _statsUpdated = false;
-  bool _showLevelUp = false;
-  int _newLevel = 0;
+  bool _isOnline = true;
+  late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
+
+    _checkConnectivity();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      setState(() {
+        _isOnline = result != ConnectivityResult.none;
+      });
+
+      // If we just came back online, try to update stats again
+      if (_isOnline && !_statsUpdated) {
+        _updateGameStats();
+      }
+    });
+
     _updateGameStats();
   }
 
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    setState(() {
+      _isOnline = connectivityResult != ConnectivityResult.none;
+    });
+  }
+
   Future<void> _updateGameStats() async {
-    if (_statsUpdated) return;
+    if (_statsUpdated || !_isOnline) return;
 
     setState(() {
       _isLoading = true;
@@ -59,25 +89,23 @@ class _GameResultScreenState extends State<GameResultScreen> {
         );
 
         if (statsResult['status'] == 'success') {
-          setState(() {
-            _statsUpdated = true;
-          });
+          // Update achievements
+          final achievementsResult = await ApiService.updateUserAchievements(widget.userId);
 
-          if (xpResult['leveled_up'] == true) {
-            // Show level up notification
+          if (achievementsResult['status'] == 'success') {
             setState(() {
-              _showLevelUp = true;
-              _newLevel = xpResult['new_level'];
+              _statsUpdated = true;
             });
-
-            // Hide level up message after 3 seconds
-            Future.delayed(const Duration(seconds: 3), () {
-              if (mounted) {
-                setState(() {
-                  _showLevelUp = false;
-                });
-              }
-            });
+          } else {
+            // Handle achievement update failure
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(achievementsResult['message'] ?? "Failed to update achievements"),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
           }
         } else {
           // Handle game stats update failure
@@ -120,6 +148,18 @@ class _GameResultScreenState extends State<GameResultScreen> {
     }
   }
 
+  void _retryUpdateStats() {
+    if (_isOnline) {
+      _updateGameStats();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("No internet connection. Please check your network."),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -187,21 +227,42 @@ class _GameResultScreenState extends State<GameResultScreen> {
             ),
           ),
 
+          // Online/Offline indicator
+          Positioned(
+            top: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: _isOnline ? Colors.green : Colors.red,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _isOnline ? "Online" : "Offline",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
           // Loading overlay
           if (_isLoading)
             Container(
               color: Colors.black.withOpacity(0.7),
-              child: const Center(
+              child: Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(
+                    const CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
                     ),
-                    SizedBox(height: 20),
+                    const SizedBox(height: 20),
                     Text(
-                      "Updating your stats...",
-                      style: TextStyle(
+                      _isOnline ? "Updating your stats..." : "Waiting for connection...",
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                       ),
@@ -211,50 +272,7 @@ class _GameResultScreenState extends State<GameResultScreen> {
               ),
             ),
 
-          // Level up notification - Only shows briefly
-          if (_showLevelUp)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withOpacity(0.7),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.emoji_events,
-                        color: Colors.amber,
-                        size: 80,
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        "LEVEL UP!",
-                        style: TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.amber,
-                          shadows: [
-                            Shadow(
-                              blurRadius: 10.0,
-                              color: Colors.orange,
-                              offset: const Offset(0, 0),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "You've reached Level $_newLevel!",
-                        style: const TextStyle(
-                          fontSize: 20,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
+          // Main content
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -277,6 +295,26 @@ class _GameResultScreenState extends State<GameResultScreen> {
                     ),
                   ),
                   const SizedBox(height: 30),
+
+                  // Connection status message
+                  if (!_isOnline && !_statsUpdated)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red),
+                      ),
+                      child: const Text(
+                        "Offline - Stats will update when connected",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  const SizedBox(height: 10),
 
                   // 8-Star Rating Display
                   Row(
@@ -334,6 +372,18 @@ class _GameResultScreenState extends State<GameResultScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+                            if (!_statsUpdated && _isOnline)
+                              const SizedBox(height: 10),
+                            if (!_statsUpdated && _isOnline)
+                              TextButton(
+                                onPressed: _retryUpdateStats,
+                                child: const Text(
+                                  "Retry Update",
+                                  style: TextStyle(
+                                    color: Colors.cyanAccent,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),

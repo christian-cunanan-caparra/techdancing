@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:video_player/video_player.dart';
-
 import '../services/api_service.dart';
 import '../services/music_service.dart';
 import 'game_result_screen.dart';
@@ -29,13 +28,11 @@ class GameplayScreen extends StatefulWidget {
 }
 
 class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObserver {
-  // Camera and Pose Detection
   CameraController? _controller;
   bool _isCameraInitialized = false;
   late PoseDetector _poseDetector;
   bool _isBusy = false;
-
-  // This is the camera image's intrinsic size (portrait-corrected)
+  CustomPaint? _customPaint;
   Size _imageSize = Size.zero;
 
   // Alignment helpers
@@ -61,9 +58,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   int _timeRemaining = 60;
   final double _smoothingFactor = 0.3;
 
-  // Scoring - Modified for real-time continuous scoring
+  // Scoring
   int _totalScore = 0;
-  int _stepContribution = 0; // Tracks how much score was earned in current step
+  int _currentStepScore = 0;
   String _feedbackText = "";
   Color _feedbackColor = Colors.white;
   Timer? _feedbackTimer;
@@ -73,18 +70,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   int _consecutiveGoodPoses = 0;
 
   // Prevents repeated scoring while holding the same pose
-  Map<String, DateTime> _lastScoredPose = {}; // Track last time each pose was scored
+  bool _poseMatched = false;
 
-  // Video Player
+  // Video Player - Updated variables for better state tracking
   late VideoPlayerController _videoController;
   bool _isVideoInitialized = false;
   bool _showVideo = false;
   bool _isVideoPlaying = false;
   bool _videoError = false;
-
-  // Performance optimization
-  DateTime _lastProcessTime = DateTime.now();
-  final int _minProcessIntervalMs = 100; // Process at most 10 frames per second
+  bool _isVideoPreparing = false;
+  Completer<void>? _videoInitializationCompleter;
 
   Future<String> _getDanceName(int danceId) async {
     final List<Map<String, dynamic>> dances = const [
@@ -118,28 +113,41 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _initializeVideo() {
+    setState(() {
+      _isVideoPreparing = true;
+      _videoError = false;
+    });
+
     // Map dance IDs to video assets
     final videoAssets = {
       1: 'assets/videos/lv_0_20250908171807.mp4',  // JUMBO HOTDOG
-      2: 'assets/videos/modelong_charing.mp4',  // MODELONG CHARING
-      3: 'assets/videos/electric_slide.mp4',  // ELECTRIC SLIDE
-      4: 'assets/videos/cha_cha_slide.mp4',  // CHA CHA SLIDE
-      5: 'assets/videos/macarena.mp4',  // MACARENA
+      2: 'assets/videos/lv_0_20250908171807.mp4',  // MODELONG CHARING
+      3: 'assets/videos/lv_0_20250908171807.mp4',  // ELECTRIC SLIDE
+      4: 'assets/videos/lv_0_20250908171807.mp4',  // CHA CHA SLIDE
+      5: 'assets/videos/lv_0_20250908171807.mp4',  // MACARENA
     };
 
-    final videoAsset = videoAssets[widget.danceId] ?? 'assets/videos/default_dance.mp4';
+    final videoAsset = videoAssets[widget.danceId] ?? 'assets/videos/lv_0_20250908171807.mp4';
+
+    _videoInitializationCompleter = Completer<void>();
 
     _videoController = VideoPlayerController.asset(videoAsset)
       ..initialize().then((_) {
         if (mounted) {
           setState(() {
             _isVideoInitialized = true;
+            _isVideoPreparing = false;
             debugPrint("Video initialized: ${_videoController.value.isInitialized}");
             debugPrint("Video duration: ${_videoController.value.duration}");
 
             // Set looping and mute the video
             _videoController.setLooping(true);
             _videoController.setVolume(0.0); // Mute the video
+
+            // Complete the initialization completer
+            if (!_videoInitializationCompleter!.isCompleted) {
+              _videoInitializationCompleter!.complete();
+            }
           });
         }
       }).catchError((error) {
@@ -147,10 +155,93 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         if (mounted) {
           setState(() {
             _isVideoInitialized = false;
+            _isVideoPreparing = false;
             _videoError = true;
           });
+
+          // Complete the completer even on error
+          if (!_videoInitializationCompleter!.isCompleted) {
+            _videoInitializationCompleter!.completeError(error);
+          }
         }
       });
+  }
+
+  // New method to safely play video
+  Future<void> _playVideoSafely() async {
+    if (!mounted) return;
+
+    // Wait for video initialization if it's still in progress
+    if (_isVideoPreparing && _videoInitializationCompleter != null) {
+      try {
+        await _videoInitializationCompleter!.future;
+      } catch (e) {
+        debugPrint("Failed to initialize video: $e");
+        setState(() {
+          _videoError = true;
+        });
+        return;
+      }
+    }
+
+    if (!_isVideoInitialized || !_videoController.value.isInitialized) {
+      debugPrint("Video not ready to play");
+      setState(() {
+        _videoError = true;
+      });
+      return;
+    }
+
+    try {
+      setState(() {
+        _showVideo = true;
+      });
+
+      // Small delay to ensure UI updates before playing
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      if (!mounted) return;
+
+      await _videoController.play();
+
+      if (mounted) {
+        setState(() {
+          _isVideoPlaying = true;
+          _videoError = false;
+        });
+      }
+
+      debugPrint("Video started playing successfully");
+    } catch (error) {
+      debugPrint("Error playing video: $error");
+      if (mounted) {
+        setState(() {
+          _videoError = true;
+          _isVideoPlaying = false;
+        });
+      }
+
+      // Try to recover by reinitializing the video
+      _recoverVideoPlayback();
+    }
+  }
+
+  // Method to recover from video errors
+  void _recoverVideoPlayback() {
+    if (_videoError) {
+      debugPrint("Attempting to recover video playback");
+
+      // Dispose the current controller
+      _videoController.pause();
+      _videoController.dispose();
+
+      // Reinitialize after a short delay
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          _initializeVideo();
+        }
+      });
+    }
   }
 
   @override
@@ -165,11 +256,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _initializeCamera();
       }
       if (_isGameStarted && _showVideo && _isVideoInitialized) {
-        _videoController.play().then((_) {
-          setState(() {
-            _isVideoPlaying = true;
-          });
-        });
+        // Use our safe play method instead of direct play
+        _playVideoSafely();
       }
     }
   }
@@ -183,7 +271,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
             'scoringLogic': _scoreIntroSway as ScoreFn,
           },
           {
@@ -191,7 +278,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Side chacha with arm movements',
             'duration': 9.5,
             'originalDuration': 9.5,
-            'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
             'scoringLogic': _scoreChachaStep as ScoreFn,
           },
           {
@@ -199,7 +285,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Arms wide open, then pointing forward',
             'duration': 10,
             'originalDuration': 10,
-            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
             'scoringLogic': _scoreJumboPose as ScoreFn,
           },
           {
@@ -207,7 +292,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Pointing forward with alternating arms',
             'duration': 10,
             'originalDuration': 10,
-            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
             'scoringLogic': _scoreHotdogPoint as ScoreFn,
           },
           {
@@ -215,7 +299,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Hands on hips with confident stance',
             'duration': 5,
             'originalDuration': 5,
-            'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
             'scoringLogic': _scoreFinalCelebration as ScoreFn,
           },
         ];
@@ -228,7 +311,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Strike a model pose with confidence',
             'duration': 10,
             'originalDuration': 10,
-            'lyrics': 'Ako ay isang model, doon sa Ermita',
             'scoringLogic': _scoreModelPose as ScoreFn,
           },
           {
@@ -236,7 +318,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Wave arms gracefully side to side',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Gabi-gabi sa disco at nagpapabongga',
             'scoringLogic': _scoreArmsWave as ScoreFn,
           },
           {
@@ -244,7 +325,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Sway hips from side to side',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Sa pagka-istariray, talbog lahat sila',
             'scoringLogic': _scoreHipSway as ScoreFn,
           },
           {
@@ -252,7 +332,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Form a star shape with arms and legs',
             'duration': 3.2,
             'originalDuration': 3.2,
-            'lyrics': 'Ang mga foreigner ay nagkakandarapa',
             'scoringLogic': _scoreStarPose as ScoreFn,
           },
           {
@@ -260,7 +339,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'End with a dramatic finishing pose',
             'duration': 3,
             'originalDuration': 3,
-            'lyrics': "'Pag ako'y sumayaw na",
             'scoringLogic': _scoreFinalPose as ScoreFn,
           },
         ];
@@ -273,7 +351,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
             'scoringLogic': _scoreIntroSway as ScoreFn,
           },
         ];
@@ -281,6 +358,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     _stepScores = List.filled(_danceSteps.length, 0);
   }
+
 
   // ===== Alignment helper -> returns 1.0 (perfect), 0.6 (ok), or 0.0 (off) =====
   double get _alignmentMultiplier {
@@ -303,6 +381,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   void _scoreModelPose(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -320,12 +399,14 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     // If we don't have enough landmarks for a model pose
     if (visibleLandmarks < 4) {
+      _poseMatched = false;
       _updateFeedback("Show your upper body!", Colors.orange);
       return;
     }
 
     // For model pose, we need at least shoulders and hips visible
     if (leftShoulder == null || rightShoulder == null || leftHip == null || rightHip == null) {
+      _poseMatched = false;
       _updateFeedback("Show your shoulders and hips!", Colors.orange);
       return;
     }
@@ -369,15 +450,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
 
     if ((handOnHip || armsInPosition) && confidentStance) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['model'] ?? DateTime(0);
-
-      // Only score this pose once every 2 seconds to prevent spam scoring
-      if (now.difference(lastScored).inSeconds >= 2) {
-        final base = 50 + Random().nextInt(30); // Lower base score for continuous scoring
+      if (!_poseMatched) {
+        final base = 300 + Random().nextInt(150);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['model'] = now;
 
         String feedbackText;
         if (handOnHip && armsInPosition) {
@@ -390,6 +466,11 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
         _updateFeedback(feedbackText, Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
+
+        Timer(const Duration(milliseconds: 1000), () {
+          _poseMatched = false;
+        });
       }
     } else {
       if (!handOnHip && !armsInPosition) {
@@ -403,12 +484,14 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
 
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreArmsWave(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -419,6 +502,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
       return;
     }
@@ -431,27 +515,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final heightDifference = (leftArmHeight - rightArmHeight).abs();
 
     if (heightDifference > 30 && (leftArmHeight > 40 || rightArmHeight > 40)) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['wave'] ?? DateTime(0);
-
-      // Only score this pose once every 1.5 seconds
-      if (now.difference(lastScored).inMilliseconds >= 1500) {
-        final base = 40 + Random().nextInt(20);
+      if (!_poseMatched) {
+        final base = 250 + Random().nextInt(150);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['wave'] = now;
         _updateFeedback("Great wave! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Wave your arms!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreHipSway(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -460,6 +542,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
 
     if (leftHip == null || rightHip == null) {
+      _poseMatched = false;
       _updateFeedback("Show your hips!", Colors.orange);
       return;
     }
@@ -468,20 +551,22 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final bool isSwaying = hipDifference > 10;
 
     if (isSwaying) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['sway'] ?? DateTime(0);
-
-      // Only score this pose once every second for continuous movement
-      if (now.difference(lastScored).inMilliseconds >= 1000) {
-        final base = 30 + Random().nextInt(20);
+      if (!_poseMatched) {
+        final base = 140 + Random().nextInt(60);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['sway'] = now;
         _updateFeedback("Yeah! Hip sway! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
+
+        Timer(const Duration(milliseconds: 800), () {
+          _poseMatched = false;
+        });
       }
     } else {
-      _updateFeedback("Sway those hips!", Colors.orange);
+      if (_poseMatched) {
+        _updateFeedback("Keep swaying!", Colors.orange);
+      }
       _consecutiveGoodPoses = 0;
     }
   }
@@ -489,6 +574,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   void _scoreStarPose(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -502,6 +588,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     if (leftWrist == null || rightWrist == null || leftAnkle == null || rightAnkle == null ||
         leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your full body!", Colors.orange);
       return;
     }
@@ -516,27 +603,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
 
     if (armsSpread && legsSpread && armsUp) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['star'] ?? DateTime(0);
-
-      // Only score this pose once every 3 seconds
-      if (now.difference(lastScored).inSeconds >= 3) {
-        final base = 80 + Random().nextInt(40);
+      if (!_poseMatched) {
+        final base = 500 + Random().nextInt(500);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['star'] = now;
         _updateFeedback("Perfect star! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Make a star shape!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreFinalPose(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -546,6 +631,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final nose = pose.landmarks[PoseLandmarkType.nose];
 
     if (leftWrist == null || rightWrist == null || nose == null) {
+      _poseMatched = false;
       _updateFeedback("Show your hands!", Colors.orange);
       return;
     }
@@ -556,27 +642,27 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final armsUp = leftArmUp && rightArmUp;
 
     if (armsUp) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['final'] ?? DateTime(0);
-
-      // Only score this pose once every 2 seconds
-      if (now.difference(lastScored).inSeconds >= 2) {
-        final base = 60 + Random().nextInt(30);
+      if (!_poseMatched) {
+        final base = 300 + Random().nextInt(150);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['final'] = now;
         _updateFeedback("Perfect finish! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Arms up high!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
+
+
 
   void _scoreIntroSway(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -587,6 +673,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
       return;
     }
@@ -599,27 +686,28 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final heightDifference = (leftArmHeight - rightArmHeight).abs();
 
     if (heightDifference < 50 && leftArmHeight > 50 && rightArmHeight > 50) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['sway'] ?? DateTime(0);
-
-      // Only score this pose once every 1.5 seconds
-      if (now.difference(lastScored).inMilliseconds >= 1500) {
-        final base = 35 + Random().nextInt(20);
+      if (!_poseMatched) {
+        final base = 200 + Random().nextInt(100);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['sway'] = now;
         _updateFeedback("Excellent sway! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Sway arms together!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
+
+
+
 
   void _scoreChachaStep(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -630,6 +718,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
 
     if (leftAnkle == null || rightAnkle == null || leftHip == null || rightHip == null) {
+      _poseMatched = false;
       _updateFeedback("Show your feet!", Colors.orange);
       return;
     }
@@ -639,27 +728,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
 
     if (ankleWidth > hipWidth * 1.2) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['chacha'] ?? DateTime(0);
-
-      // Only score this pose once every 1.5 seconds
-      if (now.difference(lastScored).inMilliseconds >= 1500) {
-        final base = 45 + Random().nextInt(25);
+      if (!_poseMatched) {
+        final base = 300 + Random().nextInt(100);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['chacha'] = now;
         _updateFeedback("Great chacha! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Wider steps!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreJumboPose(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -670,6 +757,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftWrist == null || rightWrist == null || leftShoulder == null || rightShoulder == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
       return;
     }
@@ -680,27 +768,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
 
     if (armsUp && leftArmSpread > 50 && rightArmSpread > 50) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['jumbo'] ?? DateTime(0);
-
-      // Only score this pose once every 2.5 seconds
-      if (now.difference(lastScored).inMilliseconds >= 2500) {
-        final base = 70 + Random().nextInt(40);
+      if (!_poseMatched) {
+        final base = 500 + Random().nextInt(300);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['jumbo'] = now;
         _updateFeedback("JUMBO! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Arms wide and up!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreHotdogPoint(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -711,6 +797,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
 
     if (leftWrist == null || rightWrist == null || leftElbow == null || rightElbow == null) {
+      _poseMatched = false;
       _updateFeedback("Show your arms!", Colors.orange);
       return;
     }
@@ -721,27 +808,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     // Only one arm should be extended at a time
     if (leftArmExtended != rightArmExtended) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['point'] ?? DateTime(0);
-
-      // Only score this pose once every 1.5 seconds
-      if (now.difference(lastScored).inMilliseconds >= 1500) {
-        final base = 55 + Random().nextInt(30);
+      if (!_poseMatched) {
+        final base = 450 + Random().nextInt(250);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['point'] = now;
         _updateFeedback("Perfect point! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Point with one arm!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _scoreFinalCelebration(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
+      _poseMatched = false;
       _updateFeedback("Move into frame!", Colors.red);
       return;
     }
@@ -752,6 +837,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
 
     if (leftWrist == null || rightWrist == null || leftHip == null || rightHip == null) {
+      _poseMatched = false;
       _updateFeedback("Show your hands & hips!", Colors.orange);
       return;
     }
@@ -761,29 +847,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
 
     if (leftHandOnHip && rightHandOnHip) {
-      final now = DateTime.now();
-      final lastScored = _lastScoredPose['celebration'] ?? DateTime(0);
-
-      // Only score this pose once every 2 seconds
-      if (now.difference(lastScored).inSeconds >= 2) {
-        final base = 40 + Random().nextInt(25);
+      if (!_poseMatched) {
+        final base = 250 + Random().nextInt(150);
         final score = (base * m).round();
         _addToScore(score);
-        _lastScoredPose['celebration'] = now;
         _updateFeedback("Perfect finish! +$score", Colors.green);
         _consecutiveGoodPoses++;
+        _poseMatched = true;
       }
     } else {
       _updateFeedback("Hands on hips!", Colors.orange);
       _consecutiveGoodPoses = 0;
+      _poseMatched = false;
     }
   }
 
   void _addToScore(int points) {
     if (points <= 0) return;
     setState(() {
-      _totalScore += points;
-      _stepContribution += points;
+      _currentStepScore = min(_currentStepScore + points, 1000);
       _lastScoreIncrement = points;
       _showScoreAnimation = true;
       _noPoseDetectedCount = 0;
@@ -797,6 +879,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     });
   }
+
+
+
 
   double _calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
     final baX = a.x - b.x;
@@ -855,41 +940,15 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     // Play the appropriate music based on danceId
     MusicService().playGameMusic(danceId: widget.danceId);
 
-    // Start the video automatically without controls
-    if (_isVideoInitialized && _videoController.value.isInitialized) {
-      setState(() {
-        _showVideo = true;
-      });
-
-      // Play the video with a small delay to ensure UI is updated
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted && _videoController.value.isInitialized) {
-          _videoController.play().then((_) {
-            setState(() {
-              _isVideoPlaying = true;
-            });
-            debugPrint("Video started playing");
-          }).catchError((error) {
-            debugPrint("Error playing video: $error");
-            setState(() {
-              _videoError = true;
-            });
-          });
-        }
-      });
-    } else {
-      debugPrint("Video not ready to play - initialized: $_isVideoInitialized, controller ready: ${_videoController.value.isInitialized}");
-      setState(() {
-        _videoError = true;
-      });
-    }
+    // Use the safe video play method
+    _playVideoSafely();
 
     setState(() {
       _isGameStarted = true;
       _currentStep = 0;
       _timeRemaining = 60;
       _totalScore = 0;
-      _stepContribution = 0;
+      _currentStepScore = 0;
       _stepScores = List.filled(_danceSteps.length, 0);
       _poseDetectionEnabled = true;
       _showAlignmentGuide = true;
@@ -928,15 +987,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
   void _nextStep() {
     debugPrint("Moving from step $_currentStep to ${_currentStep + 1}");
-    debugPrint("Step contribution: $_stepContribution");
+    debugPrint("Current step score: $_currentStepScore");
 
-    // Record the score contribution for this step
-    _stepScores[_currentStep] = _stepContribution;
+    _stepScores[_currentStep] = _currentStepScore;
+    _totalScore += _currentStepScore;
 
     if (_currentStep < _danceSteps.length - 1) {
       setState(() {
         _currentStep++;
-        _stepContribution = 0; // Reset step contribution for the next step
+        _currentStepScore = 0;
+        _poseMatched = false;
         _showAlignmentGuide = true;
         _isPerfectlyAligned = false;
 
@@ -1029,7 +1089,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
       _controller = CameraController(
         camera,
-        ResolutionPreset.low, // Use low resolution for better performance
+        ResolutionPreset.low,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -1200,13 +1260,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _processCameraImage(CameraImage image) async {
-    // Performance optimization: Limit processing rate
-    final now = DateTime.now();
-    if (now.difference(_lastProcessTime).inMilliseconds < _minProcessIntervalMs) {
-      return;
-    }
-    _lastProcessTime = now;
-
     if (_isBusy || !mounted || !_isGameStarted || !_poseDetectionEnabled) return;
     _isBusy = true;
 
@@ -1228,7 +1281,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
           final ScoreFn fn = _danceSteps[_currentStep]['scoringLogic'] as ScoreFn;
           fn(smoothedPose);
         }
+
+
       } else {
+        _customPaint = null;
         _noPoseDetectedCount++;
 
         if (_noPoseDetectedCount > 5) {
@@ -1244,6 +1300,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     } catch (e) {
       debugPrint("Pose detection error: $e");
+      _customPaint = null;
 
       try {
         await _poseDetector.close();
@@ -1252,6 +1309,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         debugPrint("Error reinitializing pose detector: $e");
       }
     } finally {
+      if (mounted) setState(() {});
       _isBusy = false;
     }
   }
@@ -1296,6 +1354,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _feedbackTimer?.cancel();
     _alignmentTimer?.cancel();
 
+    // Proper video disposal
     _videoController.pause();
     _videoController.dispose();
 
@@ -1304,6 +1363,34 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     super.dispose();
   }
+
+  // Add video listener to track state changes
+  void _videoListener() {
+    if (_videoController.value.hasError) {
+      debugPrint("Video error: ${_videoController.value.errorDescription}");
+      if (mounted) {
+        setState(() {
+          _videoError = true;
+          _isVideoPlaying = false;
+        });
+      }
+    } else if (_videoController.value.isPlaying) {
+      if (mounted) {
+        setState(() {
+          _isVideoPlaying = true;
+          _videoError = false;
+        });
+      }
+    } else if (_videoController.value.isInitialized &&
+        !_videoController.value.isPlaying) {
+      if (mounted) {
+        setState(() {
+          _isVideoPlaying = false;
+        });
+      }
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1342,19 +1429,24 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return Scaffold(
       body: Stack(
         children: [
-          // Camera preview only (no pose overlay)
+          // Camera + Pose overlay aligned by shared image size and FittedBox scaling
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.cover,
               child: SizedBox(
                 width: _imageSize.width,
                 height: _imageSize.height,
-                child: CameraPreview(_controller!),
+                child: Stack(
+                  children: [
+                    CameraPreview(_controller!),
+                    if (_customPaint != null) _customPaint!,
+                  ],
+                ),
               ),
             ),
           ),
 
-          // Video Guide (top-right corner)
+          // Video Guide (top-right corner) - Made smaller and positioned to not interfere with pose detection
           if (_showVideo && _isVideoInitialized)
             Positioned(
               top: 10,
@@ -1382,11 +1474,17 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                         aspectRatio: _videoController.value.aspectRatio,
                         child: VideoPlayer(_videoController),
                       ),
-                      if (!_isVideoPlaying)
+                      if (!_isVideoPlaying || _videoError)
                         Container(
                           color: Colors.black54,
-                          child: const Center(
-                            child: Icon(
+                          child: Center(
+                            child: _videoError
+                                ? const Icon(
+                              Icons.error_outline,
+                              color: Colors.red,
+                              size: 40,
+                            )
+                                : const Icon(
                               Icons.play_arrow,
                               color: Colors.white,
                               size: 40,
@@ -1399,23 +1497,31 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
               ),
             ),
 
-          // Video error message
+          // Video error message with retry button
           if (_videoError)
             Positioned(
-              top: 10,
+              top: 180, // Position below the video container
               right: 10,
-              child: Container(
-                width: 120,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.videocam_off,
-                    color: Colors.white,
-                    size: 40,
+              child: GestureDetector(
+                onTap: _recoverVideoPlayback,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.refresh, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        "Retry Video",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1478,122 +1584,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
               ),
             ),
 
-          // Score Display
-          if (_isGameStarted)
-            Positioned(
-              top: 80,
-              left: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.cyanAccent, width: 2),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.emoji_events,
-                      color: Colors.yellow,
-                      size: 24,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Score: $_totalScore',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-          // Score Animation - Shows when points are earned
-          if (_showScoreAnimation && _isGameStarted)
-            Positioned(
-              top: 130,
-              left: 20,
-              child: AnimatedOpacity(
-                opacity: _showScoreAnimation ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Text(
-                    '+$_lastScoreIncrement',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Step Progress Bar
-          if (_isGameStarted)
-            Positioned(
-              bottom: 180,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.7),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          "Step ${_currentStep + 1}/${_danceSteps.length}",
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          "${_danceSteps[_currentStep]['duration']}s left",
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: _danceSteps[_currentStep]['duration'] /
-                          _danceSteps[_currentStep]['originalDuration'],
-                      backgroundColor: Colors.white24,
-                      color: Colors.cyanAccent,
-                      minHeight: 10,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Step Score: $_stepContribution",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
           // Game UI
           SafeArea(
             child: Padding(
@@ -1615,7 +1605,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                                 danceName = snapshot.data!;
                               }
                               return Text(
-                                "$danceName Challenge",
+                                "$danceName",
                                 style: const TextStyle(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
@@ -1645,24 +1635,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                           ),
                         ],
                       ),
-                      // Timer display
-                      if (_isGameStarted)
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.7),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                          child: Text(
-                            '$_timeRemaining',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
+                      // REMOVED: Timer display from here
                     ],
                   ),
 
@@ -1706,25 +1679,18 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                     Center(
                       child: Column(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.7),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _danceSteps[_currentStep]['name'],
-                              style: const TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.cyanAccent,
-                                shadows: [
-                                  Shadow(
-                                    blurRadius: 10,
-                                    color: Colors.black,
-                                  ),
-                                ],
-                              ),
+                          Text(
+                            _danceSteps[_currentStep]['name'],
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.cyanAccent,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -1743,32 +1709,36 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 15),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
+
+                          Text(
+                            "Step ${_currentStep + 1}/${_danceSteps.length} • ${_danceSteps[_currentStep]['duration']}s left",
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.white70,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              _danceSteps[_currentStep]['lyrics'],
-                              style: const TextStyle(
-                                fontSize: 16,
-                                color: Colors.yellow,
-                                fontStyle: FontStyle.italic,
-                                shadows: [
-                                  Shadow(
-                                    blurRadius: 5,
-                                    color: Colors.black,
-                                  ),
-                                ],
-                              ),
-                              textAlign: TextAlign.center,
+                          ),
+                          Text(
+                            "Score: $_currentStepScore/1000",
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 5,
+                                  color: Colors.black,
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
-
                   const Spacer(),
 
                   if (_feedbackText.isNotEmpty)
@@ -1797,4 +1767,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       ),
     );
   }
+
+// ... (rest of the code remains the same)
 }

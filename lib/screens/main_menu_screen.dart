@@ -1,10 +1,11 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techdancing/screens/achievements_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:techdancing/screens/pactice_mode_screen.dart';
 import 'package:techdancing/screens/profile_Screen.dart';
 import 'create_dance_screen.dart';
@@ -56,6 +57,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   bool _isLoadingAnnouncements = false;
   bool _showNoAnnouncements = false;
 
+  // Connectivity
+  bool isOnline = true;
+  late StreamSubscription<ConnectivityResult> _connectivitySubscription;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +80,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       duration: const Duration(milliseconds: 1500),
     )..addStatusListener((status) {
       if (status == AnimationStatus.completed) {
+        _checkConnectivity();
         _startAutoRefresh();
         _fetchAnnouncements(); // Only fetch announcements here
       }
@@ -96,11 +102,31 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
     _animationController.forward();
     _initializeMusic();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      setState(() {
+        isOnline = result != ConnectivityResult.none;
+      });
+
+      // If we just came back online, refresh data
+      if (isOnline) {
+        _fetchUserStats();
+        _fetchAnnouncements();
+      }
+    });
+  }
+
+  Future<void> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    setState(() {
+      isOnline = connectivityResult != ConnectivityResult.none;
+    });
   }
 
   // Fetch announcements from API
   Future<void> _fetchAnnouncements() async {
-    if (_isLoadingAnnouncements) return;
+    if (_isLoadingAnnouncements || !isOnline) return;
 
     setState(() {
       _isLoadingAnnouncements = true;
@@ -142,11 +168,13 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
   Map<String, dynamic> _createNoAnnouncementCard() {
     return {
-      'title': 'NO ANNOUNCEMENTS',
-      'subtitle': 'Check back later for exciting updates and events!',
+      'title': isOnline ? 'NO ANNOUNCEMENTS' : 'OFFLINE MODE',
+      'subtitle': isOnline
+          ? 'Check back later for exciting updates and events!'
+          : 'No internet connection. Some features may be limited.',
       'date': 'Stay tuned...',
-      'gradient_color_1': '#666666',
-      'gradient_color_2': '#999999',
+      'gradient_color_1': isOnline ? '#666666' : '#FF6B6B',
+      'gradient_color_2': isOnline ? '#999999' : '#FF8E53',
       'is_no_announcement': true,
     };
   }
@@ -176,7 +204,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   void _startAutoRefresh() {
     _fetchUserStats();
     _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      _fetchUserStats();
+      if (isOnline) {
+        _fetchUserStats();
+      }
     });
   }
 
@@ -203,14 +233,22 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _musicService.resumeMusic(screenName: 'menu');
-      _fetchUserStats();
-      _fetchAnnouncements();
+      _checkConnectivity();
+      if (isOnline) {
+        _fetchUserStats();
+        _fetchAnnouncements();
+      }
     } else if (state == AppLifecycleState.paused) {
       _musicService.pauseMusic();
     }
   }
 
   void _startPracticeMode(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -231,6 +269,16 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     ).then((_) {
       _musicService.resumeMusic(screenName: 'menu');
     });
+  }
+
+  void _showOfflineWarning() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No internet connection. Please check your network.'),
+        backgroundColor: Colors.redAccent,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -254,6 +302,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     WidgetsBinding.instance.removeObserver(this);
     _autoRefreshTimer?.cancel();
     _levelUpTimer?.cancel();
+    _connectivitySubscription.cancel();
     super.dispose();
   }
 
@@ -267,6 +316,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
   // Fetch updated user stats from the server
   Future<void> _fetchUserStats() async {
+    if (!isOnline) return;
+
     try {
       final response = await ApiService.getUserStats(_currentUser['id'].toString());
 
@@ -347,6 +398,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void goToAchievements(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -371,6 +427,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void _startQuickPlay(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -395,6 +456,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void _goToCreateDance(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -419,6 +485,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void goToMultiplayer(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -464,6 +535,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   void goToLeaderboard(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -527,6 +603,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
     return GestureDetector(
       onTap: () {
+        if (!isOnline) {
+          _showOfflineWarning();
+          return;
+        }
         _startPracticeMode(context);
       },
       child: Container(
@@ -711,101 +791,101 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     final color2 = parseColor(announcement['gradient_color_2'] ?? '#999999');
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          colors: [color1.withOpacity(0.9), color2.withOpacity(0.9)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color1.withOpacity(0.4),
-            blurRadius: 20,
-            spreadRadius: 3,
-            offset: const Offset(0, 8),
+        margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            colors: [color1.withOpacity(0.9), color2.withOpacity(0.9)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.1,
-                child: CustomPaint(
-                  painter: _DancePatternPainter(),
-                ),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: isNoAnnouncement ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-                children: [
-                  if (isNoAnnouncement)
-                    const Icon(
-                      Icons.campaign_outlined,
-                      color: Colors.white70,
-                      size: 48,
-                    ),
-
-                  if (isNoAnnouncement) const SizedBox(height: 16),
-
-                  Text(
-                    announcement['title'] ?? 'Announcement',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isNoAnnouncement ? 18 : 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  Text(
-                    announcement['subtitle'] ?? '',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(isNoAnnouncement ? 0.7 : 0.9),
-                      fontSize: isNoAnnouncement ? 14 : 14,
-                      fontStyle: isNoAnnouncement ? FontStyle.italic : FontStyle.normal,
-                    ),
-                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  if (!isNoAnnouncement)
-                    Row(
-                      mainAxisAlignment: isNoAnnouncement ? MainAxisAlignment.center : MainAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.calendar_today,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          announcement['date'] ?? 'Coming soon...',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+          boxShadow: [
+            BoxShadow(
+              color: color1.withOpacity(0.4),
+              blurRadius: 20,
+              spreadRadius: 3,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            children: [
+          Positioned.fill(
+          child: Opacity(
+          opacity: 0.1,
+            child: CustomPaint(
+              painter: _DancePatternPainter(),
+            ),
+          ),
+        ),
+
+        Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: isNoAnnouncement ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+              children: [
+              if (isNoAnnouncement)
+          Icon(
+        isOnline ? Icons.campaign_outlined : Icons.wifi_off,
+          color: Colors.white70,
+          size: 48,
+        ),
+
+        if (isNoAnnouncement) const SizedBox(height: 16),
+
+    Text(
+    announcement['title'] ?? 'Announcement',
+    style: TextStyle(
+    color: Colors.white,
+    fontSize: isNoAnnouncement ? 18 : 20,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 1.2,
+    ),
+    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+    ),
+
+    const SizedBox(height: 8),
+
+    Text(
+    announcement['subtitle'] ?? '',
+    style: TextStyle(
+    color: Colors.white.withOpacity(isNoAnnouncement ? 0.7 : 0.9),
+    fontSize: isNoAnnouncement ? 14 : 14,
+    fontStyle: isNoAnnouncement ? FontStyle.italic : FontStyle.normal,
+    ),
+    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+    ),
+
+    const SizedBox(height: 16),
+
+    if (!isNoAnnouncement)
+    Row(
+    mainAxisAlignment: isNoAnnouncement ? MainAxisAlignment.center : MainAxisAlignment.start,
+    children: [
+    const Icon(
+      Icons.calendar_today,
+      color: Colors.white,
+      size: 16,
+    ),
+      const SizedBox(width: 8),
+      Text(
+        announcement['date'] ?? 'Coming soon...',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+        ),
       ),
+    ],
+    ),
+              ],
+          ),
+        ),
+            ],
+          ),
+        ),
     );
   }
 
@@ -868,12 +948,30 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
+          // Online/Offline indicator
+          Positioned(
+            top: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isOnline ? Colors.green : Colors.red,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                isOnline ? "Online" : "Offline",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+
           Column(
             children: [
               const SizedBox(height: 40),
-
-              // Mute button in the top right corner
-
 
               Expanded(
                 child: SingleChildScrollView(
@@ -914,10 +1012,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       FadeTransition(
                         opacity: _fadeAnimation,
-                        child: const Text(
-                          "Feel the rhythm of the game",
+                        child: Text(
+                          isOnline ? "Feel the rhythm of the game" : "Offline Mode - Limited Features",
                           style: TextStyle(
-                            color: Colors.white70,
+                            color: isOnline ? Colors.white70 : Colors.orange,
                             fontSize: 14,
                             fontStyle: FontStyle.italic,
                           ),
@@ -1007,6 +1105,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 Expanded(
                                   child: GestureDetector(
                                     onTap: () {
+                                      if (!isOnline) {
+                                        _showOfflineWarning();
+                                        return;
+                                      }
                                       _startQuickPlay(context);
                                     },
                                     child: Container(
@@ -1077,6 +1179,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 Expanded(
                                   child: GestureDetector(
                                     onTap: () {
+                                      if (!isOnline) {
+                                        _showOfflineWarning();
+                                        return;
+                                      }
                                       _startPracticeMode(context);
                                     },
                                     child: Container(
@@ -1148,79 +1254,12 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             const SizedBox(height: 12),
 
                             // Multiplayer button
-                            // GestureDetector(
-                            //   onTap: () {
-                            //     goToMultiplayer(context);
-                            //   },
-                            //   child: Container(
-                            //     height: 120,
-                            //     decoration: BoxDecoration(
-                            //       borderRadius: BorderRadius.circular(12),
-                            //       gradient: const LinearGradient(
-                            //         colors: [Color(0xFF9C27B0), Color(0xFF6A1B9A)],
-                            //         begin: Alignment.topLeft,
-                            //         end: Alignment.bottomRight,
-                            //       ),
-                            //       boxShadow: [
-                            //         BoxShadow(
-                            //           color: Colors.black.withOpacity(0.3),
-                            //           blurRadius: 8,
-                            //           offset: const Offset(0, 4),
-                            //         ),
-                            //       ],
-                            //     ),
-                            //     child: Stack(
-                            //       children: [
-                            //         Positioned.fill(
-                            //           child: Opacity(
-                            //             opacity: 0.1,
-                            //             child: CustomPaint(
-                            //               painter: _DancePatternPainter(),
-                            //             ),
-                            //           ),
-                            //         ),
-                            //
-                            //         Padding(
-                            //           padding: const EdgeInsets.all(12.0),
-                            //           child: Column(
-                            //             crossAxisAlignment: CrossAxisAlignment.start,
-                            //             children: [
-                            //               const Icon(
-                            //                 Icons.group,
-                            //                 color: Colors.white,
-                            //                 size: 24,
-                            //               ),
-                            //               const SizedBox(height: 8),
-                            //               const Text(
-                            //                 "Multiplayer",
-                            //                 style: TextStyle(
-                            //                   color: Colors.white,
-                            //                   fontSize: 16,
-                            //                   fontWeight: FontWeight.bold,
-                            //                 ),
-                            //               ),
-                            //               const Spacer(),
-                            //               Text(
-                            //                 "Play with friends",
-                            //                 style: TextStyle(
-                            //                   color: Colors.white.withOpacity(0.8),
-                            //                   fontSize: 12,
-                            //                 ),
-                            //               ),
-                            //             ],
-                            //           ),
-                            //         ),
-                            //       ],
-                            //     ),
-                            //   ),
-                            // ),
-
-                            const SizedBox(height: 12),
-
-                            // Create Custom Dance button
                             GestureDetector(
                               onTap: () {
-                                // _goToCreateDance(context);
+                                if (!isOnline) {
+                                  _showOfflineWarning();
+                                  return;
+                                }
                                 goToMultiplayer(context);
                               },
                               child: Container(
@@ -1281,8 +1320,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             GestureDetector(
                               onTap: () {
+                                if (!isOnline) {
+                                  _showOfflineWarning();
+                                  return;
+                                }
                                 _goToCreateDance(context);
-                                // goToMultiplayer(context);
                               },
                               child: Container(
                                 height: 80, // Slightly smaller height
@@ -1323,7 +1365,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                           ),
                                           const SizedBox(width: 8),
                                           const Text(
-                                            "Create Custom Dance move",
+                                            "Request Dance and Steps",
                                             style: TextStyle(
                                               color: Colors.white,
                                               fontSize: 16,
@@ -1503,6 +1545,20 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                 ),
               ),
             ),
+
+          // Mute button in the top right corner
+          Positioned(
+            top: 20,
+            left: 20,
+            child: IconButton(
+              icon: Icon(
+                _isMuted ? Icons.volume_off : Icons.volume_up,
+                color: Colors.white,
+                size: 28,
+              ),
+              onPressed: _toggleMute,
+            ),
+          ),
         ],
       ),
     );

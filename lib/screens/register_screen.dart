@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 import 'verification_screen.dart';
-
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -19,9 +20,11 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
   final _formKey = GlobalKey<FormState>();
   bool isLoading = false;
   bool _obscurePassword = true;
+  bool isOnline = true;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   @override
   void initState() {
@@ -53,6 +56,16 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
 
     // Start animation
     _animationController.forward();
+
+    // Check connectivity status
+    _checkConnectivity();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      setState(() {
+        isOnline = result != ConnectivityResult.none;
+      });
+    });
   }
 
   @override
@@ -61,11 +74,30 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
     nameController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    _connectivitySubscription.cancel();
     super.dispose();
+  }
+
+  Future<void> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    setState(() {
+      isOnline = connectivityResult != ConnectivityResult.none;
+    });
   }
 
   void registerUser() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Check if we're online before attempting registration
+    if (!isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No internet connection. Please check your network.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
     setState(() => isLoading = true);
 
@@ -217,22 +249,42 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                   const SizedBox(height: 30),
                   FadeTransition(
                     opacity: _fadeAnimation,
-                    child: const Text(
-                      "BEAT\nBREAKER",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 42,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 3,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 10.0,
-                            color: Colors.pinkAccent,
-                            offset: Offset(0, 0),
+                    child: Stack(
+                      alignment: Alignment.topRight,
+                      children: [
+                        const Text(
+                          "BEAT\nBREAKER",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 42,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 3,
+                            shadows: [
+                              Shadow(
+                                blurRadius: 10.0,
+                                color: Colors.pinkAccent,
+                                offset: Offset(0, 0),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isOnline ? Colors.green : Colors.red,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            isOnline ? "Online" : "Offline",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -310,9 +362,9 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
                       )
                           : ElevatedButton(
-                        onPressed: registerUser,
+                        onPressed: isOnline ? registerUser : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.pinkAccent,
+                          backgroundColor: isOnline ? Colors.pinkAccent : Colors.grey,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 60,
                             vertical: 16,
@@ -321,7 +373,9 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                             borderRadius: BorderRadius.circular(30),
                           ),
                           elevation: 8,
-                          shadowColor: Colors.pinkAccent.withOpacity(0.5),
+                          shadowColor: isOnline
+                              ? Colors.pinkAccent.withOpacity(0.5)
+                              : Colors.grey.withOpacity(0.5),
                         ),
                         child: const Text(
                           'Register',
@@ -348,15 +402,15 @@ class _RegisterScreenState extends State<RegisterScreen> with SingleTickerProvid
                           ),
                         ),
                         GestureDetector(
-                          onTap: () {
+                          onTap: isOnline ? () {
                             Navigator.of(context).pushReplacement(
                               _createFadeRoute(const LoginScreen()),
                             );
-                          },
-                          child: const Text(
+                          } : null,
+                          child: Text(
                             "Login",
                             style: TextStyle(
-                              color: Colors.cyanAccent,
+                              color: isOnline ? Colors.cyanAccent : Colors.grey,
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),

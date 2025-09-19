@@ -5,70 +5,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "http://192.168.1.9/dancing";
+  static const String baseUrl = "https://admin-beatbreaker.site/flutter";
 
 
   // In ApiService class
-  static Future<Map<String, dynamic>> getUserAchievements(String userId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/achievements.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      ).timeout(const Duration(seconds: 10));
 
-      print('Achievements API Response: ${response.statusCode} - ${response.body}');
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        return {
-          'status': 'error',
-          'message': 'Server error: ${response.statusCode}'
-        };
-      }
-    } on TimeoutException {
-      return {'status': 'error', 'message': 'Request timeout'};
-    } on http.ClientException catch (e) {
-      return {'status': 'error', 'message': 'Network error: ${e.message}'};
-    } on FormatException catch (e) {
-      return {'status': 'error', 'message': 'Invalid response format: ${e.toString()}'};
-    } catch (e) {
-      return {'status': 'error', 'message': 'Unexpected error: ${e.toString()}'};
-    }
-  }
-
-  static Future<Map<String, dynamic>> unlockAchievement(String userId, String achievementId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/unlock_achievement.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'user_id': userId,
-          'achievement_id': achievementId,
-        }),
-      ).timeout(const Duration(seconds: 10));
-
-      print('Unlock Achievement API Response: ${response.statusCode} - ${response.body}');
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        return {
-          'status': 'error',
-          'message': 'Server error: ${response.statusCode}'
-        };
-      }
-    } on TimeoutException {
-      return {'status': 'error', 'message': 'Request timeout'};
-    } on http.ClientException catch (e) {
-      return {'status': 'error', 'message': 'Network error: ${e.message}'};
-    } on FormatException catch (e) {
-      return {'status': 'error', 'message': 'Invalid response format: ${e.toString()}'};
-    } catch (e) {
-      return {'status': 'error', 'message': 'Unexpected error: ${e.toString()}'};
-    }
-  }
 
 
   static Future<List<dynamic>> getAnnouncements() async {
@@ -108,6 +50,9 @@ class ApiService {
 
     return result;
   }
+
+
+
 
 
   // LEADERBOARD
@@ -315,6 +260,8 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
+
+
   static Future<Map<String, dynamic>> getSelectedDance(String roomCode) async {
     try {
       final response = await http.get(
@@ -332,6 +279,8 @@ class ApiService {
     }
   }
 
+
+
   static Future<Map<String, dynamic>> selectRandomDance(String roomCode) async {
     try {
       final response = await http.post(
@@ -348,6 +297,33 @@ class ApiService {
       return {'status': 'error', 'message': e.toString()};
     }
   }
+
+
+  //multi selectdance
+
+  // Multiplayer dance selection
+  static Future<Map<String, dynamic>> selectRandomDanceMulti(String roomCode) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/select-dance-multi'),
+      body: {'room_code': roomCode},
+    );
+
+    return json.decode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> selectDanceMulti(String roomCode, int danceId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/select-dance-multi'),
+      body: {
+        'room_code': roomCode,
+        'dance_id': danceId.toString(),
+      },
+    );
+
+    return json.decode(response.body);
+  }
+  
+//end
 
 
   static Future<Map<String, dynamic>> setStartTime(String roomCode) async {
@@ -502,6 +478,69 @@ class ApiService {
   }
 
 
+  // Get all available achievements
+  static Future<Map<String, dynamic>> getAchievements() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/achievements.php'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to load achievements'};
+      }
+    } catch (e) {
+      debugPrint('Error fetching achievements: $e');
+      return {'status': 'error', 'message': 'Network error'};
+    }
+  }
+
+// Get user's achievement progress
+  static Future<Map<String, dynamic>> getUserAchievements(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/user_achievements.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'user_id': userId}),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to load user achievements'};
+      }
+    } catch (e) {
+      debugPrint('Error fetching user achievements: $e');
+      return {'status': 'error', 'message': 'Network error'};
+    }
+  }
+
+
+  // Check and update user achievements
+// In your ApiService class, update the updateUserAchievements method
+  static Future<Map<String, dynamic>> updateUserAchievements(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/update_user_achievements.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'user_id': userId}),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+
+        // Add debug logging
+        print('Achievement update result: $result');
+
+        return result;
+      } else {
+        return {'status': 'error', 'message': 'Failed to update achievements'};
+      }
+    } catch (e) {
+      debugPrint('Error updating achievements: $e');
+      return {'status': 'error', 'message': 'Network error'};
+    }
+  }
 }
-
-

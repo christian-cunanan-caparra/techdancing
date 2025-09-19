@@ -1,5 +1,8 @@
 // lib/screens/verification_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
 
@@ -18,11 +21,40 @@ class _VerificationScreenState extends State<VerificationScreen> {
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   bool isLoading = false;
   bool isResending = false;
+  bool isOnline = true;
+  late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
     _setupFocusNodes();
+    _checkConnectivity();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      setState(() {
+        isOnline = result != ConnectivityResult.none;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var controller in _codeControllers) {
+      controller.dispose();
+    }
+    for (var focusNode in _focusNodes) {
+      focusNode.dispose();
+    }
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    setState(() {
+      isOnline = connectivityResult != ConnectivityResult.none;
+    });
   }
 
   void _setupFocusNodes() {
@@ -58,6 +90,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   void _verifyCode() async {
     if (!_isAllFieldsFilled()) return;
+
+    // Check if we're online before attempting verification
+    if (!isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No internet connection. Please check your network.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
     setState(() => isLoading = true);
 
@@ -113,6 +156,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   void _resendCode() async {
+    // Check if we're online before attempting to resend
+    if (!isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No internet connection. Please check your network.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     setState(() => isResending = true);
 
     try {
@@ -145,17 +199,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   @override
-  void dispose() {
-    for (var controller in _codeControllers) {
-      controller.dispose();
-    }
-    for (var focusNode in _focusNodes) {
-      focusNode.dispose();
-    }
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0B1E),
@@ -166,13 +209,33 @@ class _VerificationScreenState extends State<VerificationScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 40),
-                const Text(
-                  "🔐 Verify Your Account",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    const Text(
+                      "🔐 Verify Your Account",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: isOnline ? Colors.green : Colors.red,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        isOnline ? "Online" : "Offline",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -242,14 +305,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
                 )
                     : ElevatedButton(
-                  onPressed: _isAllFieldsFilled() ? _verifyCode : null,
+                  onPressed: _isAllFieldsFilled() && isOnline ? _verifyCode : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.pinkAccent,
+                    backgroundColor: isOnline ? Colors.pinkAccent : Colors.grey,
                     padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
                     elevation: 8,
+                    shadowColor: isOnline
+                        ? Colors.pinkAccent.withOpacity(0.5)
+                        : Colors.grey.withOpacity(0.5),
                   ),
                   child: const Text(
                     'Verify Account',
@@ -265,7 +331,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
                 // Resend Code
                 TextButton(
-                  onPressed: isResending ? null : _resendCode,
+                  onPressed: isResending || !isOnline ? null : _resendCode,
                   child: isResending
                       ? const SizedBox(
                     width: 20,
@@ -275,10 +341,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
                     ),
                   )
-                      : const Text(
+                      : Text(
                     "Resend Code",
                     style: TextStyle(
-                      color: Colors.cyanAccent,
+                      color: isOnline ? Colors.cyanAccent : Colors.grey,
                       fontSize: 16,
                     ),
                   ),

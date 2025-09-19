@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:techdancing/screens/main_menu_screen.dart';
-import '../services/api_service.dart';
+import 'package:techdancing/services/api_service.dart';
 
 class AchievementsScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -12,43 +10,33 @@ class AchievementsScreen extends StatefulWidget {
   State<AchievementsScreen> createState() => _AchievementsScreenState();
 }
 
-class _AchievementsScreenState extends State<AchievementsScreen>
-    with SingleTickerProviderStateMixin {
+class _AchievementsScreenState extends State<AchievementsScreen> {
   late Map<String, dynamic> _currentUser;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
   bool _isLoading = false;
   String _errorMessage = '';
-  List<Map<String, dynamic>> _achievements = [];
+  List<dynamic> _achievements = [];
+  List<dynamic> _userAchievements = [];
 
   @override
   void initState() {
     super.initState();
     _currentUser = Map.from(widget.user);
-
-    // Initialize animations
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeIn,
-      ),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.elasticOut,
-      ),
-    );
-
-    _animationController.forward();
     _loadAchievements();
+  }
+
+  // Safe parsing functions
+  int _safeParseInt(dynamic value, {int defaultValue = 0}) {
+    if (value == null) return defaultValue;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? defaultValue;
+    if (value is double) return value.toInt();
+    return defaultValue;
+  }
+
+  String _safeParseString(dynamic value, {String defaultValue = ''}) {
+    if (value == null) return defaultValue;
+    if (value is String) return value;
+    return value.toString();
   }
 
   Future<void> _loadAchievements() async {
@@ -58,294 +46,645 @@ class _AchievementsScreenState extends State<AchievementsScreen>
     });
 
     try {
-      print('Loading achievements for user: ${_currentUser['id']}');
+      print("Loading achievements for user: ${_currentUser['id']}");
 
-      // Fetch achievements from API
-      final response = await ApiService.getUserAchievements(_currentUser['id'].toString());
+      // First update achievements based on current user stats
+      final updateResult = await ApiService.updateUserAchievements(
+          _currentUser['id'].toString()
+      );
 
-      print('API Response: $response');
+      print("Update result: ${updateResult['status']}");
+      if (updateResult['status'] == 'success') {
+        print("Awarded achievements: ${updateResult['awarded_achievements']?.length ?? 0}");
 
-      if (response['status'] == 'success') {
+        if (updateResult['awarded_achievements'] != null) {
+          // Show notification for newly awarded achievements
+          final awarded = updateResult['awarded_achievements'] as List;
+          if (awarded.isNotEmpty) {
+            _showNewAchievementsNotification(awarded);
+          }
+        }
+      }
+
+      // Then load all available achievements
+      final achievementsResult = await ApiService.getAchievements();
+      print("Achievements loaded: ${achievementsResult['achievements']?.length ?? 0}");
+
+      // Load user's achievement progress
+      final userAchievementsResult = await ApiService.getUserAchievements(
+          _currentUser['id'].toString()
+      );
+      print("User achievements: ${userAchievementsResult['user_achievements']?.length ?? 0}");
+
+      // Debug: Print all achievements and their status
+      if (achievementsResult['status'] == 'success' && achievementsResult['achievements'] != null) {
+        for (var achievement in achievementsResult['achievements']) {
+          final progress = _getUserAchievementProgress(achievement);
+          print("Achievement ${achievement['name']}: completed=${progress['completed']}, progress=${progress['progress']}");
+        }
+      }
+
+      if (achievementsResult['status'] == 'success') {
         setState(() {
-          _achievements = List<Map<String, dynamic>>.from(response['achievements'] ?? []);
+          _achievements = achievementsResult['achievements'] ?? [];
         });
-        print('Loaded ${_achievements.length} achievements');
       } else {
         setState(() {
-          _errorMessage = response['message'] ?? 'Failed to load achievements';
+          _errorMessage = achievementsResult['message'] ?? 'Failed to load achievements';
         });
-        print('Error: $_errorMessage');
+      }
+
+      if (userAchievementsResult['status'] == 'success') {
+        setState(() {
+          _userAchievements = userAchievementsResult['user_achievements'] ?? [];
+        });
+
+        // Debug: Print user achievements data
+        print("User achievements raw data:");
+        for (var ua in _userAchievements) {
+          print("ID: ${ua['achievement_id']}, Completed: ${ua['completed']}, Type: ${ua['completed'].runtimeType}");
+        }
       }
     } catch (e) {
+      debugPrint('Error loading achievements: $e');
       setState(() {
-        _errorMessage = 'Failed to load achievements: ${e.toString()}';
+        _errorMessage = 'Network error: ${e.toString()}';
       });
-      print('Exception: $_errorMessage');
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
   }
-  Future<void> _unlockAchievement(String achievementId) async {
-    try {
-      final response = await ApiService.unlockAchievement(
-          _currentUser['id'].toString(),
-          achievementId
-      );
 
-      if (response['status'] == 'success') {
-        // Refresh achievements
-        _loadAchievements();
-
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Achievement unlocked! +${response['xp_gained']} XP'),
-              backgroundColor: Colors.green,
-            )
-        );
-
-        // Show level up notification if applicable
-        if (response['leveled_up'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('🎉 Level Up! You\'re now level ${response['new_level']}!'),
-                backgroundColor: Colors.blue,
-                duration: const Duration(seconds: 3),
-              )
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response['message'] ?? 'Failed to unlock achievement'),
-              backgroundColor: Colors.red,
-            )
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          )
-      );
-    }
+  void _showNewAchievementsNotification(List<dynamic> newAchievements) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Earned ${newAchievements.length} new achievement(s)!',
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'View',
+          textColor: Colors.white,
+          onPressed: () {
+            // Scroll to top to show new achievements
+            Scrollable.ensureVisible(context);
+          },
+        ),
+      ),
+    );
   }
 
-  // Group achievements by category
-  Map<String, List<Map<String, dynamic>>> _groupAchievementsByCategory() {
-    Map<String, List<Map<String, dynamic>>> grouped = {};
+  // Get user's progress for a specific achievement - FIXED VERSION
+  Map<String, dynamic> _getUserAchievementProgress(Map<String, dynamic> achievement) {
+    final int achievementId = _safeParseInt(achievement['id']);
 
-    for (var achievement in _achievements) {
-      String category = achievement['category'];
-      if (!grouped.containsKey(category)) {
-        grouped[category] = [];
+    // First check if we have a record in user_achievements
+    for (var userAchievement in _userAchievements) {
+      if (_safeParseInt(userAchievement['achievement_id']) == achievementId) {
+        // Return the actual database record
+        return userAchievement;
       }
-      grouped[category]!.add(achievement);
     }
 
-    return grouped;
-  }
+    // If no record exists, check if user already meets the criteria
+    final String category = _safeParseString(achievement['category']);
+    final int targetValue = _safeParseInt(achievement['target_value']);
 
-  // Calculate completion statistics
-  Map<String, int> _calculateCompletionStats() {
-    int total = _achievements.length;
-    int completed = _achievements.where((a) => a['completed'] == true).length;
-    int inProgress = _achievements.where((a) =>
-    a['completed'] == false && a['progress'] > 0).length;
-    int locked = _achievements.where((a) =>
-    a['completed'] == false && a['progress'] == 0).length;
+    int currentValue = 0;
 
+    switch (category) {
+      case 'level':
+        currentValue = _safeParseInt(_currentUser['level'], defaultValue: 1);
+        break;
+      case 'games_played':
+        currentValue = _safeParseInt(_currentUser['games_played']);
+        break;
+      case 'total_score':
+        currentValue = _safeParseInt(_currentUser['total_score']);
+        break;
+      case 'high_score':
+        currentValue = _safeParseInt(_currentUser['high_score']);
+        break;
+      default:
+        currentValue = 0;
+    }
+
+    final bool isCompleted = currentValue >= targetValue;
+
+    // Return virtual progress for achievements that should be completed but aren't in DB yet
     return {
-      'total': total,
-      'completed': completed,
-      'inProgress': inProgress,
-      'locked': locked,
+      'progress': isCompleted ? targetValue : currentValue,
+      'completed': isCompleted ? 1 : 0, // Use 1/0 instead of true/false
+      'completed_at': isCompleted ? DateTime.now().toString() : null
     };
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
+  // Calculate progress percentage for an achievement - FIXED
+  double _calculateProgressPercentage(Map<String, dynamic> achievement) {
+    final Map<String, dynamic> userProgress = _getUserAchievementProgress(achievement);
+
+    // Check for 1 instead of true
+    if (userProgress['completed'] == 1) {
+      return 100.0;
+    }
+
+    int targetValue = _safeParseInt(achievement['target_value']);
+    int currentProgress = _safeParseInt(userProgress['progress']);
+
+    // Otherwise calculate normal progress
+    return (currentProgress / targetValue) * 100;
+  }
+
+  // Get appropriate icon for each achievement category
+  IconData _getAchievementIcon(String category) {
+    switch (category) {
+      case 'level':
+        return Icons.leaderboard;
+      case 'games_played':
+        return Icons.videogame_asset;
+      case 'total_score':
+        return Icons.star;
+      case 'high_score':
+        return Icons.emoji_events;
+      default:
+        return Icons.ac_unit_sharp;
+    }
+  }
+
+  // Get appropriate color for each achievement category
+  Color _getAchievementColor(String category) {
+    switch (category) {
+      case 'level':
+        return Colors.purpleAccent;
+      case 'games_played':
+        return Colors.blueAccent;
+      case 'total_score':
+        return Colors.amberAccent;
+      case 'high_score':
+        return Colors.pinkAccent;
+      default:
+        return Colors.greenAccent;
+    }
+  }
+
+  Widget _buildAchievementCard(Map<String, dynamic> achievement) {
+    final int achievementId = _safeParseInt(achievement['id']);
+    final String name = _safeParseString(achievement['name']);
+    final String description = _safeParseString(achievement['description']);
+    final String category = _safeParseString(achievement['category']);
+    final int targetValue = _safeParseInt(achievement['target_value']);
+    final int xpReward = _safeParseInt(achievement['xp_reward']);
+
+    final Map<String, dynamic> userProgress = _getUserAchievementProgress(achievement);
+    final bool isCompleted = userProgress['completed'] == 1; // Check for 1 instead of true
+    final double progressPercentage = _calculateProgressPercentage(achievement);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _getAchievementColor(category).withOpacity(isCompleted ? 0.7 : 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with icon and title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _getAchievementColor(category).withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _getAchievementIcon(category),
+                  color: _getAchievementColor(category),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    decoration: isCompleted ? TextDecoration.underline : null,
+                  ),
+                ),
+              ),
+              if (isCompleted)
+                const Icon(
+                  Icons.verified,
+                  color: Colors.greenAccent,
+                  size: 24,
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Description
+          Text(
+            description,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 14,
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Progress bar
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Progress',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                    ),
+                  ),
+                  Text(
+                    '${progressPercentage.toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                height: 8,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Stack(
+                  children: [
+                    Container(
+                      height: 8,
+                      width: (MediaQuery.of(context).size.width - 64) * (progressPercentage / 100),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            _getAchievementColor(category),
+                            _getAchievementColor(category).withOpacity(0.7),
+                          ],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _getProgressText(category, targetValue),
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    'Target: $targetValue',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Reward section
+          // Container(
+          //   padding: const EdgeInsets.all(8),
+          //   decoration: BoxDecoration(
+          //     color: Colors.black.withOpacity(0.2),
+          //     borderRadius: BorderRadius.circular(8),
+          //   ),
+          //   child: Row(
+          //     children: [
+          //       const Icon(
+          //         Icons.bolt,
+          //         color: Colors.amberAccent,
+          //         size: 16,
+          //       ),
+          //       const SizedBox(width: 4),
+          //       Text(
+          //         '+$xpReward XP Reward',
+          //         style: const TextStyle(
+          //           color: Colors.amberAccent,
+          //           fontSize: 14,
+          //           fontWeight: FontWeight.bold,
+          //         ),
+          //       ),
+          //       const Spacer(),
+          //       if (isCompleted)
+          //         Text(
+          //           'Completed on ${_formatDate(userProgress['completed_at'])}',
+          //           style: TextStyle(
+          //             color: Colors.greenAccent,
+          //             fontSize: 12,
+          //           ),
+          //         ),
+          //     ],
+          //   ),
+          // ),
+        ],
+      ),
+    );
+  }
+
+  String _getProgressText(String category, int targetValue) {
+    int currentValue = 0;
+
+    switch (category) {
+      case 'level':
+        currentValue = _safeParseInt(_currentUser['level'], defaultValue: 1);
+        break;
+      case 'games_played':
+        currentValue = _safeParseInt(_currentUser['games_played']);
+        break;
+      case 'total_score':
+        currentValue = _safeParseInt(_currentUser['total_score']);
+        break;
+      case 'high_score':
+        currentValue = _safeParseInt(_currentUser['high_score']);
+        break;
+      default:
+        currentValue = 0;
+    }
+
+    return '$currentValue/$targetValue';
+  }
+
+  String _formatDate(dynamic date) {
+    if (date == null) return 'Unknown date';
+
+    try {
+      final DateTime dateTime = DateTime.parse(date.toString());
+      return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+    } catch (e) {
+      return 'Invalid date';
+    }
+  }
+
+  Widget _buildCategorySection(String categoryName, List<dynamic> achievements) {
+    final categoryAchievements = achievements.where((a) =>
+    _safeParseString(a['category']) == categoryName).toList();
+
+    if (categoryAchievements.isEmpty) return const SizedBox();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _getCategoryDisplayName(categoryName),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ...categoryAchievements.map((achievement) =>
+            _buildAchievementCard(achievement)
+        ).toList(),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  String _getCategoryDisplayName(String category) {
+    switch (category) {
+      case 'level':
+        return 'Level Achievements';
+      case 'games_played':
+        return 'Gameplay Achievements';
+      case 'total_score':
+        return 'Scoring Achievements';
+      case 'high_score':
+        return 'High Score Achievements';
+      default:
+        return 'Other Achievements';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    Map<String, int> stats = _calculateCompletionStats();
-    Map<String, List<Map<String, dynamic>>> groupedAchievements = _groupAchievementsByCategory();
+    // Group achievements by category
+    final categories = ['level', 'games_played', 'total_score', 'high_score'];
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0523),
+      backgroundColor: const Color(0xFF0D0B1E),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
+            colors: [Color(0xFF0D0B1E), Color(0xFF1A093B)],
           ),
         ),
         child: SafeArea(
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Stack(
-                children: [
-                  Column(
-                    children: [
-                      // Header
-                      Padding(
-                        padding: const EdgeInsets.all(16),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'ACHIEVEMENTS',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          onPressed: _loadAchievements,
+                          tooltip: 'Refresh Achievements',
+                        ),
+                      ],
+                    ),
+
+                    // Error message
+                    if (_errorMessage.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red),
+                        ),
                         child: Row(
                           children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_back, color: Colors.white),
-                              onPressed: () {
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => MainMenuScreen(user: _currentUser),
-                                  ),
-                                );
-                              },
-                            ),
+                            const Icon(Icons.error, color: Colors.red),
                             const SizedBox(width: 10),
-                            const Text(
-                              'ACHIEVEMENTS',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.5,
+                            Expanded(
+                              child: Text(
+                                _errorMessage,
+                                style: const TextStyle(color: Colors.white),
                               ),
                             ),
-                            const Spacer(),
                             IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              icon: const Icon(Icons.close, size: 18),
                               onPressed: () {
-                                _loadAchievements();
+                                setState(() {
+                                  _errorMessage = '';
+                                });
                               },
-                              tooltip: 'Refresh',
                             ),
                           ],
                         ),
                       ),
 
-                      // Stats Overview
-                      _buildStatsOverview(stats),
+                    const SizedBox(height: 16),
 
-                      // Tab Bar for Categories
-                      DefaultTabController(
-                        length: groupedAchievements.keys.length,
-                        child: Expanded(
-                          child: Column(
-                            children: [
-                              TabBar(
-                                isScrollable: true,
-                                indicatorColor: Colors.purpleAccent,
-                                labelColor: Colors.white,
-                                unselectedLabelColor: Colors.white70,
-                                tabs: groupedAchievements.keys.map((category) {
-                                  return Tab(text: category.toUpperCase());
-                                }).toList(),
-                              ),
-                              Expanded(
-                                child: TabBarView(
-                                  children: groupedAchievements.keys.map((category) {
-                                    return _buildAchievementsList(groupedAchievements[category]!);
-                                  }).toList(),
-                                ),
-                              ),
-                            ],
-                          ),
+                    // Progress summary
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.purpleAccent.withOpacity(0.3),
+                          width: 1,
                         ),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildSummaryItem(
+                            'Total',
+                            _achievements.length.toString(),
+                            Icons.dashboard_customize,
+                          ),
+                          _buildSummaryItem(
+                            'Completed',
+                            _userAchievements.where((a) => a['completed'] == 1).length.toString(),
+                            Icons.verified,
+                          ),
+                          _buildSummaryItem(
+                            'In Progress',
+                            _userAchievements.where((a) => a['completed'] != 1).length.toString(),
+                            Icons.timelapse,
+                          ),
+                        ],
+                      ),
+                    ),
 
-                  // Loading overlay
-                  if (_isLoading)
-                    Container(
-                      color: Colors.black.withOpacity(0.7),
-                      child: const Center(
+                    const SizedBox(height: 24),
+
+                    // Achievements list
+                    Expanded(
+                      child: SingleChildScrollView(
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                            ),
-                            SizedBox(height: 20),
-                            Text(
-                              "Loading achievements...",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                              ),
-                            ),
+                            ...categories.map((category) =>
+                                _buildCategorySection(category, _achievements)
+                            ).toList(),
+
+                            // Show any achievements that don't fit the main categories
+                            if (_achievements.any((a) => !categories.contains(a['category'])))
+                              _buildCategorySection('other', _achievements),
                           ],
                         ),
                       ),
                     ),
-                ],
+                  ],
+                ),
               ),
-            ),
+
+              // Loading overlay
+              if (_isLoading)
+                Container(
+                  color: Colors.black.withOpacity(0.7),
+                  child: const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                        ),
+                        SizedBox(height: 20),
+                        Text(
+                          "Loading achievements...",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStatsOverview(Map<String, int> stats) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.purple.withOpacity(0.5), Colors.blue.withOpacity(0.3)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatItem('Total', stats['total']!.toString(), Icons.emoji_events),
-          _buildStatItem('Completed', stats['completed']!.toString(), Icons.check_circle),
-          _buildStatItem('In Progress', stats['inProgress']!.toString(), Icons.timelapse),
-          _buildStatItem('Locked', stats['locked']!.toString(), Icons.lock),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String title, String value, IconData icon) {
+  Widget _buildSummaryItem(String title, String value, IconData icon) {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.1),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: Colors.purpleAccent, size: 20),
+          child: Icon(icon, color: Colors.purpleAccent, size: 24),
         ),
         const SizedBox(height: 8),
         Text(
           value,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 16,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -353,135 +692,10 @@ class _AchievementsScreenState extends State<AchievementsScreen>
           title,
           style: TextStyle(
             color: Colors.white.withOpacity(0.7),
-            fontSize: 10,
+            fontSize: 12,
           ),
         ),
       ],
     );
-  }
-
-  Widget _buildAchievementsList(List<Map<String, dynamic>> achievements) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: achievements.length,
-      itemBuilder: (context, index) {
-        final achievement = achievements[index];
-        bool isCompleted = achievement['completed'];
-        int progress = achievement['progress'];
-        int target = achievement['target'];
-        double progressPercent = progress / target;
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: isCompleted
-                ? Colors.green.withOpacity(0.2)
-                : Colors.grey.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isCompleted
-                  ? Colors.greenAccent
-                  : (progress > 0 ? Colors.blueAccent : Colors.grey),
-              width: 1,
-            ),
-          ),
-          child: ListTile(
-            leading: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: isCompleted
-                    ? Colors.green.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.3),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _getIconFromString(achievement['icon']),
-                color: isCompleted
-                    ? Colors.greenAccent
-                    : (progress > 0 ? Colors.blueAccent : Colors.grey),
-              ),
-            ),
-            title: Text(
-              achievement['name'],
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                decoration: isCompleted ? TextDecoration.underline : null,
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  achievement['description'],
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                if (!isCompleted)
-                  LinearProgressIndicator(
-                    value: progressPercent,
-                    backgroundColor: Colors.grey.withOpacity(0.3),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      progress > 0 ? Colors.blueAccent : Colors.grey,
-                    ),
-                  ),
-                const SizedBox(height: 4),
-                Text(
-                  isCompleted
-                      ? "Completed!"
-                      : "$progress/$target (${(progressPercent * 100).toStringAsFixed(0)}%)",
-                  style: TextStyle(
-                    color: isCompleted
-                        ? Colors.greenAccent
-                        : Colors.white70,
-                    fontSize: 10,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "Reward: ${achievement['reward']}",
-                  style: TextStyle(
-                    color: Colors.amber,
-                    fontSize: 10,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-            trailing: isCompleted
-                ? const Icon(Icons.check_circle, color: Colors.greenAccent)
-                : const Icon(Icons.lock, color: Colors.grey),
-            onTap: () {
-              if (!isCompleted && progress >= target) {
-                _unlockAchievement(achievement['id'].toString());
-              }
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  IconData _getIconFromString(String iconName) {
-    switch (iconName) {
-      case 'star': return Icons.star;
-      case 'trophy': return Icons.emoji_events;
-      case 'celebration': return Icons.celebration;
-      case 'grade': return Icons.grade;
-      case 'check_circle': return Icons.check_circle;
-      case 'local_activity': return Icons.local_activity;
-      case 'military_tech': return Icons.military_tech;
-      case 'trending_up': return Icons.trending_up;
-      case 'leaderboard': return Icons.leaderboard;
-      case 'people': return Icons.people;
-      case 'calendar_today': return Icons.calendar_today;
-      case 'calendar_view_month': return Icons.calendar_view_month;
-      case 'person_add': return Icons.person_add;
-      default: return Icons.star_border;
-    }
   }
 }

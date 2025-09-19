@@ -1,11 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/api_service.dart';
 import 'main_menu_screen.dart';
 import 'register_screen.dart';
-import 'verification_screen.dart'; // Import the verification screen
+import 'verification_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,9 +22,11 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   final _formKey = GlobalKey<FormState>();
   bool isLoading = false;
   bool _obscurePassword = true;
+  bool isOnline = true;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
   @override
   void initState() {
@@ -57,6 +61,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
     // Check for saved credentials
     _loadSavedCredentials();
+
+    // Check connectivity status
+    _checkConnectivity();
+
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      setState(() {
+        isOnline = result != ConnectivityResult.none;
+      });
+    });
   }
 
   @override
@@ -64,7 +78,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     _animationController.dispose();
     emailController.dispose();
     passwordController.dispose();
+    _connectivitySubscription.cancel();
     super.dispose();
+  }
+
+  Future<void> _checkConnectivity() async {
+    var connectivityResult = await Connectivity().checkConnectivity();
+    setState(() {
+      isOnline = connectivityResult != ConnectivityResult.none;
+    });
   }
 
   Future<void> _loadSavedCredentials() async {
@@ -79,19 +101,23 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         });
       }
     } catch (e) {
-      print("Login error: $e"); // 👈 Add this
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Network error. Please try again.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      print("Error loading saved credentials: $e");
     }
-
   }
 
   void loginUser() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Check if we're online before attempting login
+    if (!isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No internet connection. Please check your network.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
     setState(() => isLoading = true);
 
@@ -309,22 +335,42 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   const SizedBox(height: 30),
                   FadeTransition(
                     opacity: _fadeAnimation,
-                    child: const Text(
-                      "BEAT\nBREAKER",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 42,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 3,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 10.0,
-                            color: Colors.pinkAccent,
-                            offset: Offset(0, 0),
+                    child: Stack(
+                      alignment: Alignment.topRight,
+                      children: [
+                        const Text(
+                          "BEAT\nBREAKER",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 42,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 3,
+                            shadows: [
+                              Shadow(
+                                blurRadius: 10.0,
+                                color: Colors.pinkAccent,
+                                offset: Offset(0, 0),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isOnline ? Colors.green : Colors.red,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            isOnline ? "Online" : "Offline",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -406,9 +452,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
                       )
                           : ElevatedButton(
-                        onPressed: loginUser,
+                        onPressed: isOnline ? loginUser : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.pinkAccent,
+                          backgroundColor: isOnline ? Colors.pinkAccent : Colors.grey,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 60,
                             vertical: 16,
@@ -417,7 +463,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             borderRadius: BorderRadius.circular(30),
                           ),
                           elevation: 8,
-                          shadowColor: Colors.pinkAccent.withOpacity(0.5),
+                          shadowColor: isOnline
+                              ? Colors.pinkAccent.withOpacity(0.5)
+                              : Colors.grey.withOpacity(0.5),
                         ),
                         child: const Text(
                           'Login',
@@ -444,15 +492,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           ),
                         ),
                         GestureDetector(
-                          onTap: () {
+                          onTap: isOnline ? () {
                             Navigator.of(context).pushReplacement(
                               _createFadeRoute(const RegisterScreen()),
                             );
-                          },
-                          child: const Text(
+                          } : null,
+                          child: Text(
                             "Sign Up",
                             style: TextStyle(
-                              color: Colors.cyanAccent,
+                              color: isOnline ? Colors.cyanAccent : Colors.grey,
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),

@@ -2,9 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
-import 'select_dance_screen.dart';
-import 'gameplay_screen.dart';
 import '../services/music_service.dart';
+import 'select_dance_screenmultiplayer.dart'; // Fixed import
 
 class GameWaitingScreen extends StatefulWidget {
   final Map user;
@@ -96,6 +95,7 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
     }
   }
 
+// In your _startPollingRoom method, replace the players list building logic:
   void _startPollingRoom() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       try {
@@ -106,10 +106,11 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
             _roomData = result['room'] ?? {};
             _players = [];
 
+            // Only add player IDs since names aren't available in rooms table
             if (_roomData['player1_id'] != null) {
               _players.add({
                 'id': _roomData['player1_id'],
-                'name': _roomData['player1_name'] ?? 'Player 1',
+                'name': 'Player 1', // Default name since actual name isn't in rooms table
                 'isHost': true
               });
             }
@@ -117,14 +118,11 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
             if (_roomData['player2_id'] != null) {
               _players.add({
                 'id': _roomData['player2_id'],
-                'name': _roomData['player2_name'] ?? 'Player 2',
+                'name': 'Player 2', // Default name since actual name isn't in rooms table
                 'isHost': false
               });
             }
           });
-
-          final player2Id = _roomData['player2_id'];
-          final gameType = result['game_type'] ?? 'multiplayer';
 
           // Check ready status regardless of player count
           final readyResult = await ApiService.checkBothReady(widget.roomCode);
@@ -190,11 +188,11 @@ class _GameWaitingScreenState extends State<GameWaitingScreen>
     _timer?.cancel();
     _musicService.pauseMusic(rememberToResume: false);
 
-    // Navigate immediately without delay
+    // Navigate to the multiplayer dance selection screen
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => SelectDanceScreen(
+        builder: (_) => SelectDanceScreenMultiplayer(
           user: widget.user,
           roomCode: widget.roomCode,
         ),
