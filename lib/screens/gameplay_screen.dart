@@ -65,8 +65,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   Color _feedbackColor = Colors.white;
   Timer? _feedbackTimer;
   late List<int> _stepScores;
-  bool _showScoreAnimation = false;
-  int _lastScoreIncrement = 0;
+    bool _showScoreAnimation = false;
+    int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
 
   // Prevents repeated scoring while holding the same pose
@@ -112,19 +112,19 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _startCountdown();
   }
 
+
   void _initializeVideo() {
     setState(() {
       _isVideoPreparing = true;
       _videoError = false;
     });
 
-    // Map dance IDs to video assets
     final videoAssets = {
-      1: 'assets/videos/lv_0_20250908171807.mp4',  // JUMBO HOTDOG
-      2: 'assets/videos/lv_0_20250908171807.mp4',  // MODELONG CHARING
-      3: 'assets/videos/lv_0_20250908171807.mp4',  // ELECTRIC SLIDE
-      4: 'assets/videos/lv_0_20250908171807.mp4',  // CHA CHA SLIDE
-      5: 'assets/videos/lv_0_20250908171807.mp4',  // MACARENA
+      1: 'assets/videos/lv_0_20250908171807.mp4',
+      2: 'assets/videos/lv_0_20250908171807.mp4',
+      3: 'assets/videos/lv_0_20250908171807.mp4',
+      4: 'assets/videos/lv_0_20250908171807.mp4',
+      5: 'assets/videos/lv_0_20250908171807.mp4',
     };
 
     final videoAsset = videoAssets[widget.danceId] ?? 'assets/videos/lv_0_20250908171807.mp4';
@@ -140,11 +140,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             debugPrint("Video initialized: ${_videoController.value.isInitialized}");
             debugPrint("Video duration: ${_videoController.value.duration}");
 
-            // Set looping and mute the video
             _videoController.setLooping(true);
-            _videoController.setVolume(0.0); // Mute the video
+            _videoController.setVolume(0.0);
 
-            // Complete the initialization completer
             if (!_videoInitializationCompleter!.isCompleted) {
               _videoInitializationCompleter!.complete();
             }
@@ -159,7 +157,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             _videoError = true;
           });
 
-          // Complete the completer even on error
           if (!_videoInitializationCompleter!.isCompleted) {
             _videoInitializationCompleter!.completeError(error);
           }
@@ -167,39 +164,29 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       });
   }
 
-  // New method to safely play video
   Future<void> _playVideoSafely() async {
     if (!mounted) return;
 
-    // Wait for video initialization if it's still in progress
     if (_isVideoPreparing && _videoInitializationCompleter != null) {
       try {
         await _videoInitializationCompleter!.future;
       } catch (e) {
         debugPrint("Failed to initialize video: $e");
-        setState(() {
-          _videoError = true;
-        });
+        setState(() => _videoError = true);
         return;
       }
     }
 
     if (!_isVideoInitialized || !_videoController.value.isInitialized) {
       debugPrint("Video not ready to play");
-      setState(() {
-        _videoError = true;
-      });
+      setState(() => _videoError = true);
       return;
     }
 
     try {
-      setState(() {
-        _showVideo = true;
-      });
+      setState(() => _showVideo = true);
 
-      // Small delay to ensure UI updates before playing
       await Future.delayed(const Duration(milliseconds: 100));
-
       if (!mounted) return;
 
       await _videoController.play();
@@ -220,22 +207,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
           _isVideoPlaying = false;
         });
       }
-
-      // Try to recover by reinitializing the video
       _recoverVideoPlayback();
     }
   }
 
-  // Method to recover from video errors
   void _recoverVideoPlayback() {
     if (_videoError) {
       debugPrint("Attempting to recover video playback");
-
-      // Dispose the current controller
       _videoController.pause();
       _videoController.dispose();
 
-      // Reinitialize after a short delay
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
           _initializeVideo();
@@ -256,7 +237,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _initializeCamera();
       }
       if (_isGameStarted && _showVideo && _isVideoInitialized) {
-        // Use our safe play method instead of direct play
         _playVideoSafely();
       }
     }
@@ -936,12 +916,18 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     });
   }
 
-  void _startGame() {
-    // Play the appropriate music based on danceId
+  Future<void> _startGame() async {
     MusicService().playGameMusic(danceId: widget.danceId);
 
-    // Use the safe video play method
-    _playVideoSafely();
+    if (_videoInitializationCompleter != null) {
+      try {
+        await _videoInitializationCompleter!.future;
+      } catch (_) {
+        debugPrint("Video init failed, skipping playback");
+      }
+    }
+
+    await _playVideoSafely();
 
     setState(() {
       _isGameStarted = true;
@@ -954,7 +940,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _showAlignmentGuide = true;
       _isPerfectlyAligned = false;
 
-      // Reset all step durations to their original values
       for (var step in _danceSteps) {
         step['duration'] = step['originalDuration'];
       }
@@ -968,12 +953,11 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         if (_timeRemaining > 0) {
           _timeRemaining--;
 
-          // Decrement current step duration
           if (_danceSteps[_currentStep]['duration'] > 0) {
-            _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['duration'] - 1;
+            _danceSteps[_currentStep]['duration'] =
+                _danceSteps[_currentStep]['duration'] - 1;
           }
 
-          // Move to next step if current step duration is complete
           if (_danceSteps[_currentStep]['duration'] <= 0) {
             _nextStep();
           }
@@ -984,6 +968,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       });
     });
   }
+
+
+
 
   void _nextStep() {
     debugPrint("Moving from step $_currentStep to ${_currentStep + 1}");
