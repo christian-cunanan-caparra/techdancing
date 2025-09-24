@@ -4,12 +4,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui';
+import 'package:techdancing/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:techdancing/screens/pactice_mode_screen.dart';
 import 'package:techdancing/screens/profile_Screen.dart';
 import 'create_dance_screen.dart';
-import 'login_screen.dart';
 import 'multiplayer_screen.dart';
 import 'leaderboard_screen.dart';
 import '../services/music_service.dart';
@@ -57,6 +57,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   bool _isLoadingAnnouncements = false;
   bool _showNoAnnouncements = false;
 
+  // Announcement caching
+  static List<Map<String, dynamic>> _cachedAnnouncements = [];
+  static bool _hasCachedAnnouncements = false;
+
   // Connectivity
   bool isOnline = true;
   late StreamSubscription<ConnectivityResult> _connectivitySubscription;
@@ -82,7 +86,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       if (status == AnimationStatus.completed) {
         _checkConnectivity();
         _startAutoRefresh();
-        _fetchAnnouncements(); // Only fetch announcements here
+        _loadAnnouncements(); // Use the new loading method
       }
     });
 
@@ -112,7 +116,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       // If we just came back online, refresh data
       if (isOnline) {
         _fetchUserStats();
-        _fetchAnnouncements();
+        _refreshAnnouncements();
       }
     });
   }
@@ -124,45 +128,73 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     });
   }
 
-  // Fetch announcements from API
-  Future<void> _fetchAnnouncements() async {
-    if (_isLoadingAnnouncements || !isOnline) return;
+  // Load announcements with caching
+  Future<void> _loadAnnouncements() async {
+    // Show cached announcements immediately if available
+    if (_hasCachedAnnouncements && _cachedAnnouncements.isNotEmpty) {
+      setState(() {
+        _announcements = List.from(_cachedAnnouncements);
+        _showNoAnnouncements = false;
+        _isLoadingAnnouncements = false;
+      });
 
-    setState(() {
-      _isLoadingAnnouncements = true;
-      _showNoAnnouncements = false;
-    });
+      // Start carousel immediately with cached data
+      _startCarouselAutoScroll();
+    }
 
+    // If online, try to refresh announcements in background
+    if (isOnline) {
+      await _refreshAnnouncements();
+    } else {
+      // If offline and no cached data, show offline message
+      if (!_hasCachedAnnouncements || _cachedAnnouncements.isEmpty) {
+        setState(() {
+          _announcements = [_createNoAnnouncementCard()];
+          _showNoAnnouncements = true;
+          _isLoadingAnnouncements = false;
+        });
+        _startCarouselAutoScroll();
+      }
+    }
+  }
+
+  // Refresh announcements in background
+  Future<void> _refreshAnnouncements() async {
     try {
       final announcements = await ApiService.getAnnouncements();
 
       if (announcements.isEmpty) {
-        setState(() {
-          _showNoAnnouncements = true;
-          _announcements = [_createNoAnnouncementCard()];
-        });
+        // Only update if we don't already have cached announcements
+        if (!_hasCachedAnnouncements || _cachedAnnouncements.isEmpty) {
+          setState(() {
+            _showNoAnnouncements = true;
+            _announcements = [_createNoAnnouncementCard()];
+          });
+        }
       } else {
+        // Cache the new announcements
+        _cachedAnnouncements = List<Map<String, dynamic>>.from(announcements);
+        _hasCachedAnnouncements = true;
+
+        // Update UI with fresh data
         setState(() {
-          _announcements = List<Map<String, dynamic>>.from(announcements);
+          _announcements = List.from(_cachedAnnouncements);
           _showNoAnnouncements = false;
         });
       }
 
-      // Start/restart carousel auto-scroll AFTER announcements are loaded
+      // Restart carousel with updated data
       _startCarouselAutoScroll();
     } catch (e) {
-      print('Error loading announcements: $e');
-      setState(() {
-        _showNoAnnouncements = true;
-        _announcements = [_createNoAnnouncementCard()];
-      });
-
-      // Even if there's an error, try to set up carousel
-      _startCarouselAutoScroll();
-    } finally {
-      setState(() {
-        _isLoadingAnnouncements = false;
-      });
+      print('Error refreshing announcements: $e');
+      // Don't show error if we have cached data to display
+      if (!_hasCachedAnnouncements || _cachedAnnouncements.isEmpty) {
+        setState(() {
+          _showNoAnnouncements = true;
+          _announcements = [_createNoAnnouncementCard()];
+        });
+        _startCarouselAutoScroll();
+      }
     }
   }
 
@@ -236,7 +268,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       _checkConnectivity();
       if (isOnline) {
         _fetchUserStats();
-        _fetchAnnouncements();
+        _refreshAnnouncements();
       }
     } else if (state == AppLifecycleState.paused) {
       _musicService.pauseMusic();
@@ -382,18 +414,24 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     await prefs.setString('user', jsonEncode(_currentUser));
   }
 
-  Future<void> logout(BuildContext context) async {
-    _autoRefreshTimer?.cancel();
-    _levelUpTimer?.cancel();
-    _carouselTimer?.cancel();
-    await _musicService.stopMusic();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-
-    Navigator.pushAndRemoveUntil(
+  void goToSettings(BuildContext context) {
+    Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            SettingsScreen(user: _currentUser),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
     );
   }
 
@@ -409,7 +447,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         pageBuilder: (context, animation, secondaryAnimation) =>
             AchievementsScreen(user: _currentUser),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(1.0, 0.0);
+          const begin = Offset(0.0, 1.0);
           const end = Offset.zero;
           const curve = Curves.easeInOut;
 
@@ -768,8 +806,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   }
 
   Widget _buildAnnouncementCard(int index) {
+    // Always show content, never loading
     if (_announcements.isEmpty) {
-      return _buildLoadingCard();
+      return _buildNoAnnouncementFallback();
     }
 
     if (index >= _announcements.length) {
@@ -791,118 +830,176 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     final color2 = parseColor(announcement['gradient_color_2'] ?? '#999999');
 
     return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            colors: [color1.withOpacity(0.9), color2.withOpacity(0.9)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+      margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [color1.withOpacity(0.9), color2.withOpacity(0.9)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color1.withOpacity(0.4),
+            blurRadius: 20,
+            spreadRadius: 3,
+            offset: const Offset(0, 8),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: color1.withOpacity(0.4),
-              blurRadius: 20,
-              spreadRadius: 3,
-              offset: const Offset(0, 8),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.1,
+                child: CustomPaint(
+                  painter: _DancePatternPainter(),
+                ),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: isNoAnnouncement ? MainAxisAlignment.center : MainAxisAlignment.start,
+                crossAxisAlignment: isNoAnnouncement ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+                children: [
+                  if (isNoAnnouncement)
+                    Icon(
+                      isOnline ? Icons.campaign_outlined : Icons.wifi_off,
+                      color: Colors.white70,
+                      size: 48,
+                    ),
+
+                  if (isNoAnnouncement) const SizedBox(height: 16),
+
+                  Text(
+                    announcement['title'] ?? 'Announcement',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isNoAnnouncement ? 18 : 20,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  Text(
+                    announcement['subtitle'] ?? '',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(isNoAnnouncement ? 0.7 : 0.9),
+                      fontSize: isNoAnnouncement ? 14 : 14,
+                      fontStyle: isNoAnnouncement ? FontStyle.italic : FontStyle.normal,
+                    ),
+                    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  if (!isNoAnnouncement)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.start, // Changed this too
+                      children: [
+                        const Icon(
+                          Icons.calendar_today,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          announcement['date'] ?? 'Coming soon...',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Stack(
-            children: [
-          Positioned.fill(
-          child: Opacity(
-          opacity: 0.1,
-            child: CustomPaint(
-              painter: _DancePatternPainter(),
-            ),
-          ),
-        ),
-
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: isNoAnnouncement ? CrossAxisAlignment.center : CrossAxisAlignment.start,
-              children: [
-              if (isNoAnnouncement)
-          Icon(
-        isOnline ? Icons.campaign_outlined : Icons.wifi_off,
-          color: Colors.white70,
-          size: 48,
-        ),
-
-        if (isNoAnnouncement) const SizedBox(height: 16),
-
-    Text(
-    announcement['title'] ?? 'Announcement',
-    style: TextStyle(
-    color: Colors.white,
-    fontSize: isNoAnnouncement ? 18 : 20,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 1.2,
-    ),
-    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
-    ),
-
-    const SizedBox(height: 8),
-
-    Text(
-    announcement['subtitle'] ?? '',
-    style: TextStyle(
-    color: Colors.white.withOpacity(isNoAnnouncement ? 0.7 : 0.9),
-    fontSize: isNoAnnouncement ? 14 : 14,
-    fontStyle: isNoAnnouncement ? FontStyle.italic : FontStyle.normal,
-    ),
-    textAlign: isNoAnnouncement ? TextAlign.center : TextAlign.left,
-    ),
-
-    const SizedBox(height: 16),
-
-    if (!isNoAnnouncement)
-    Row(
-    mainAxisAlignment: isNoAnnouncement ? MainAxisAlignment.center : MainAxisAlignment.start,
-    children: [
-    const Icon(
-      Icons.calendar_today,
-      color: Colors.white,
-      size: 16,
-    ),
-      const SizedBox(width: 8),
-      Text(
-        announcement['date'] ?? 'Coming soon...',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-        ),
       ),
-    ],
-    ),
-              ],
-          ),
-        ),
-            ],
-          ),
-        ),
     );
   }
 
-  Widget _buildLoadingCard() {
+  Widget _buildNoAnnouncementFallback() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
         gradient: LinearGradient(
-          colors: [Colors.grey[600]!, Colors.grey[800]!],
+          colors: [
+            Color(0xFF666666).withOpacity(0.9),
+            Color(0xFF999999).withOpacity(0.9)
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0xFF666666).withOpacity(0.4),
+            blurRadius: 20,
+            spreadRadius: 3,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      child: const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.1,
+                child: CustomPaint(
+                  painter: _DancePatternPainter(),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Icon(
+                    isOnline ? Icons.campaign_outlined : Icons.wifi_off,
+                    color: Colors.white70,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isOnline ? 'NO ANNOUNCEMENTS' : 'OFFLINE MODE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    isOnline
+                        ? 'Check back later for exciting updates and events!'
+                        : 'No internet connection. Some features may be limited.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.7),
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -949,25 +1046,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
 
           // Online/Offline indicator
-          Positioned(
-            top: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: isOnline ? Colors.green : Colors.red,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                isOnline ? "Online" : "Offline",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
+
 
           Column(
             children: [
@@ -1024,19 +1103,41 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 30),
 
+                      // In the build method, replace the entire SizedBox containing the PageView.builder:
                       SizedBox(
                         height: MediaQuery.of(context).size.height * 0.43,
-                        child: _isLoadingAnnouncements
-                            ? _buildLoadingCard()
-                            : PageView.builder(
+                        child: PageView.builder(
                           controller: _carouselController,
-                          itemCount: _announcements.length,
+                          itemCount: _announcements.isEmpty ? 1 : _announcements.length,
                           onPageChanged: (index) {
                             setState(() {
                               _currentCarouselIndex = index;
                             });
                           },
                           itemBuilder: (context, index) {
+                            // Handle empty announcements case
+                            if (_announcements.isEmpty) {
+                              return AnimatedBuilder(
+                                animation: _carouselController,
+                                builder: (context, child) {
+                                  double value = 1.0;
+                                  if (_carouselController.position.haveDimensions) {
+                                    value = _carouselController.page! - index;
+                                    value = (1 - (value.abs() * 0.3)).clamp(0.0, 1.0);
+                                  }
+
+                                  return Transform.scale(
+                                    scale: Curves.easeOut.transform(value),
+                                    child: Opacity(
+                                      opacity: value.clamp(0.7, 1.0),
+                                      child: _buildNoAnnouncementFallback(),
+                                    ),
+                                  );
+                                },
+                              );
+                            }
+
+                            // Normal case with announcements
                             return AnimatedBuilder(
                               animation: _carouselController,
                               builder: (context, child) {
@@ -1050,11 +1151,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                   scale: Curves.easeOut.transform(value),
                                   child: Opacity(
                                     opacity: value.clamp(0.7, 1.0),
-                                    child: child,
+                                    child: _buildAnnouncementCard(index),
                                   ),
                                 );
                               },
-                              child: _buildAnnouncementCard(index),
                             );
                           },
                         ),
@@ -1331,7 +1431,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(12),
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                                    colors: [Color(0xFFF40313), Color(
+                                        0xFF2C56DF)],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
                                   ),
@@ -1493,9 +1594,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                     onPressed: () => goToProfile(context),
                   ),
                   _buildBottomButton(
-                    icon: Icons.exit_to_app,
-                    label: "Logout",
-                    onPressed: () => logout(context),
+                    icon: Icons.settings,
+                    label: "Settings",
+                    onPressed: () => goToSettings(context),
                   ),
                 ],
               ),
@@ -1545,20 +1646,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                 ),
               ),
             ),
-
-          // Mute button in the top right corner
-          Positioned(
-            top: 20,
-            left: 20,
-            child: IconButton(
-              icon: Icon(
-                _isMuted ? Icons.volume_off : Icons.volume_up,
-                color: Colors.white,
-                size: 28,
-              ),
-              onPressed: _toggleMute,
-            ),
-          ),
         ],
       ),
     );

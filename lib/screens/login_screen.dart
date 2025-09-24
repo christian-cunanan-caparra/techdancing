@@ -105,8 +105,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
   }
 
-  void loginUser() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<bool> loginUser() async { // Changed to return Future<bool>
+    if (!_formKey.currentState!.validate()) return false;
 
     // Check if we're online before attempting login
     if (!isOnline) {
@@ -116,7 +116,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           backgroundColor: Colors.redAccent,
         ),
       );
-      return;
+      return false;
     }
 
     setState(() => isLoading = true);
@@ -132,6 +132,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('isLoggedIn', true);
         await prefs.setString('user', jsonEncode(result['user']));
+        await prefs.setString('session_token', result['session_token'] ?? '');
 
         // Save email if remember me is enabled
         await prefs.setBool('rememberMe', true);
@@ -140,9 +141,14 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         Navigator.of(context).pushReplacement(_createFadeRoute(
           MainMenuScreen(user: result['user']),
         ));
+        return true;
       } else {
+        // Handle already logged in case
+        if (result['message']?.contains('already logged in') == true) {
+          _showAlreadyLoggedInDialog();
+        }
         // Handle unverified account
-        if (result['requires_verification'] == true) {
+        else if (result['requires_verification'] == true) {
           _showVerificationRequiredDialog(result['email'] ?? emailController.text.trim());
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -154,6 +160,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             ),
           );
         }
+        return false;
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -164,10 +171,61 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
+      return false;
     } finally {
       if (mounted) {
         setState(() => isLoading = false);
       }
+    }
+  }
+
+  void _showAlreadyLoggedInDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1539),
+        title: const Text(
+          "Already Logged In",
+          style: TextStyle(color: Colors.white, fontSize: 20),
+        ),
+        content: const Text(
+          "Your account is already logged in on another device. Would you like to logout from the other device and login here?",
+          style: TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+          TextButton(
+            onPressed: () => _forceLogoutAndLogin(),
+            child: const Text("Logout Other Device", style: TextStyle(color: Colors.pinkAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _forceLogoutAndLogin() async {
+    Navigator.pop(context); // Close dialog
+
+    setState(() => isLoading = true);
+
+    try {
+      // First, try to force logout by calling logout without session token
+      final prefs = await SharedPreferences.getInstance();
+      final userString = prefs.getString('user');
+      if (userString != null) {
+        final userMap = jsonDecode(userString);
+        await ApiService.logout(userMap['id'].toString(), '');
+      }
+
+      // Now you can use await since loginUser returns Future<bool>
+      await loginUser();
+
+    } catch (e) {
+      // If force logout fails, try login anyway
+      await loginUser();
     }
   }
 
@@ -452,7 +510,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
                       )
                           : ElevatedButton(
-                        onPressed: isOnline ? loginUser : null,
+                        onPressed: isOnline ? loginUser : null, // Updated to match new return type
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isOnline ? Colors.pinkAccent : Colors.grey,
                           padding: const EdgeInsets.symmetric(

@@ -11,48 +11,21 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen> {
   late Map<String, dynamic> _currentUser;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
   bool _isLoading = false;
   String _errorMessage = '';
   int _userRank = 0;
   List<dynamic> _rankingData = [];
-  bool _isPopping = false; // Added flag to track if we're popping
 
   @override
   void initState() {
     super.initState();
     _currentUser = Map.from(widget.user);
-
-    // Initialize animations
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeIn,
-      ),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.elasticOut,
-      ),
-    );
-
-    _animationController.forward();
     _loadUserStats();
     _loadRankingData();
   }
 
-  // Helper function to get dancer title based on level
   String getDancerTitle(dynamic level) {
     int levelInt;
     if (level is String) {
@@ -85,7 +58,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return 1;
   }
 
-  // Safe parsing function to handle different data types
   int _safeParseInt(dynamic value, {int defaultValue = 0}) {
     if (value == null) return defaultValue;
     if (value is int) return value;
@@ -108,11 +80,9 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     return value.toString();
   }
 
-  // Check if user data belongs to current user by comparing IDs
   bool _isCurrentUser(dynamic userData) {
     if (userData == null) return false;
 
-    // Try to get user ID from different possible field names
     final userId = _safeParseInt(userData['id'] ?? userData['user_id'] ?? userData['userId']);
     return userId == _safeParseInt(_currentUser['id']);
   }
@@ -165,7 +135,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     try {
       final data = await ApiService.getLeaderboard(_currentUser['id'].toString());
 
-      // Find the user's rank by comparing IDs
+
       int userRank = 0;
       for (int i = 0; i < data.length; i++) {
         if (_isCurrentUser(data[i])) {
@@ -180,7 +150,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       });
     } catch (e) {
       debugPrint('Error loading ranking data: $e');
-      // Set default values to avoid UI errors
+
       setState(() {
         _userRank = 0;
         _rankingData = [];
@@ -341,33 +311,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     );
   }
 
-  // Modified back button handler with reverse animation
-  Future<void> _handleBackButton() async {
-    if (_isPopping) return; // Prevent multiple pops
-
-    setState(() {
-      _isPopping = true;
-    });
-
-    // Reverse the animation before popping
-    await _animationController.reverse();
-
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => MainMenuScreen(user: _currentUser),
-        ),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     int level = _safeParseInt(_currentUser['level'], defaultValue: 1);
@@ -381,156 +324,138 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     int totalScore = _safeParseInt(_currentUser['total_score']);
     String joinDate = _safeParseString(_currentUser['created_at'], defaultValue: 'Unknown');
 
-    return PopScope(
-      canPop: false, // Disable default back button behavior
-      onPopInvoked: (didPop) {
-        if (!didPop) {
-          _handleBackButton();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0D0B1E),
-        body: Container(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'PROFILE',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.5,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF0F0523),
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF0D0B1E), Color(0xFF1A093B)],
+                colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight
             ),
           ),
-          child: SafeArea(
-            child: ScaleTransition(
-              scale: _scaleAnimation,
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: Stack(
-                  children: [
-                    SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        actions: [
+
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: () {
+              _loadUserStats();
+              _loadRankingData();
+            },
+            tooltip: 'Refresh Stats',
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0F0523), Color(0xFF1D054A)],
+          ),
+        ),
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Error message
+                  if (_errorMessage.isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red),
+                      ),
+                      child: Row(
                         children: [
-                          // Header with back button
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                                onPressed: _handleBackButton,
-                              ),
-                              const SizedBox(width: 10),
-                              const Text(
-                                'PROFILE',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.5,
-                                ),
-                              ),
-                              const Spacer(),
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.white),
-                                onPressed: () {
-                                  _showEditProfileDialog(context);
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.refresh, color: Colors.white),
-                                onPressed: () {
-                                  _loadUserStats();
-                                  _loadRankingData();
-                                },
-                                tooltip: 'Refresh Stats',
-                              ),
-                            ],
-                          ),
-
-                          // Error message
-                          if (_errorMessage.isNotEmpty)
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              margin: const EdgeInsets.only(bottom: 16),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.red),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.error, color: Colors.red),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      _errorMessage,
-                                      style: const TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.close, size: 18),
-                                    onPressed: () {
-                                      setState(() {
-                                        _errorMessage = '';
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
+                          const Icon(Icons.error, color: Colors.red),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _errorMessage,
+                              style: const TextStyle(color: Colors.white),
                             ),
-
-                          const SizedBox(height: 20),
-
-                          // User Profile Card
-                          _buildProfileCard(name, email, joinDate, level, xp, xpRequired, progress),
-
-                          const SizedBox(height: 20),
-
-                          // Ranking Section
-                          _buildRankingCard(),
-
-                          const SizedBox(height: 20),
-
-                          // Statistics Section
-                          _buildStatisticsCard(gamesPlayed, highScore, totalScore),
-
-                          const SizedBox(height: 20),
-
-                          // Achievements Section
-                          _buildAchievementsCard(),
-
-                          const SizedBox(height: 30),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () {
+                              setState(() {
+                                _errorMessage = '';
+                              });
+                            },
+                          ),
                         ],
                       ),
                     ),
 
-                    // Loading overlay
-                    if (_isLoading)
-                      Container(
-                        color: Colors.black.withOpacity(0.7),
-                        child: const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                              ),
-                              SizedBox(height: 20),
-                              Text(
-                                "Loading profile...",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                  const SizedBox(height: 20),
+
+                  // User Profile Card
+                  _buildProfileCard(name, email, joinDate, level, xp, xpRequired, progress),
+
+                  const SizedBox(height: 20),
+
+                  // Ranking Section
+                  _buildRankingCard(),
+
+                  const SizedBox(height: 20),
+
+                  // Statistics Section
+                  _buildStatisticsCard(gamesPlayed, highScore, totalScore),
+
+                  const SizedBox(height: 20),
+
+                  // Achievements Section
+                  _buildAchievementsCard(),
+
+                  const SizedBox(height: 30),
+                ],
               ),
             ),
-          ),
+
+            // Loading overlay
+            if (_isLoading)
+              Container(
+                color: Colors.black.withOpacity(0.7),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        "Loading profile...",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -792,7 +717,6 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       ],
     );
   }
-
 
   Widget _buildAchievementsCard() {
     int gamesPlayed = _safeParseInt(_currentUser['games_played']);

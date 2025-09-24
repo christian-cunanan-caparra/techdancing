@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
@@ -219,32 +218,7 @@ class _MultiplayerScreenState extends State<MultiplayerScreen>
         ),
         actions: [
           // Mute button with glassmorphic effect
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.pinkAccent.withOpacity(0.7),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      _isMuted ? Icons.volume_off : Icons.volume_up,
-                      color: Colors.cyanAccent,
-                    ),
-                    onPressed: _toggleMute,
-                  ),
-                ),
-              ),
-            ),
-          ),
+
         ],
       ),
       body: GestureDetector(
@@ -266,7 +240,7 @@ class _MultiplayerScreenState extends State<MultiplayerScreen>
               ),
             ),
 
-            // Animated background elements
+            // Animated background elements (simplified)
             Positioned.fill(
               child: CustomPaint(
                 painter: _BackgroundPainter(animation: _animationController),
@@ -571,7 +545,7 @@ class _MultiplayerScreenState extends State<MultiplayerScreen>
   }
 }
 
-// Custom painter for background animation
+// Simplified background painter without rotating dot circles
 class _BackgroundPainter extends CustomPainter {
   final Animation<double> animation;
 
@@ -579,6 +553,7 @@ class _BackgroundPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Simple gradient circles without the rotating particles
     final paint = Paint()
       ..shader = const RadialGradient(
         colors: [Color(0x20E91E63), Color(0x000D0B1E)],
@@ -608,19 +583,6 @@ class _BackgroundPainter extends CustomPainter {
       size.width * 0.4 * animation.value,
       paint2,
     );
-
-    // Draw some animated particles
-    final particleCount = 20;
-    final particlePaint = Paint()..color = Colors.white.withOpacity(0.1);
-
-    for (var i = 0; i < particleCount; i++) {
-      final angle = (i / particleCount) * 3.1416 * 2;
-      final radius = size.width * 0.4 * animation.value;
-      final x = size.width / 2 + radius * cos(angle + animation.value * 3.1416);
-      final y = size.height / 2 + radius * sin(angle + animation.value * 3.1416);
-
-      canvas.drawCircle(Offset(x, y), 2.0, particlePaint);
-    }
   }
 
   @override

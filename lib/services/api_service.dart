@@ -281,6 +281,20 @@ class ApiService {
 
 
 
+// LOGOUT
+  static Future<Map<String, dynamic>> logout(String userId, String sessionToken) async {
+    final response = await http.post(
+      Uri.parse("$baseUrl/logout.php"),
+      body: jsonEncode({
+        'user_id': userId,
+        'session_token': sessionToken,
+      }),
+      headers: {'Content-Type': 'application/json'},
+    );
+    return jsonDecode(response.body);
+  }
+
+
   static Future<Map<String, dynamic>> selectRandomDance(String roomCode) async {
     try {
       final response = await http.post(

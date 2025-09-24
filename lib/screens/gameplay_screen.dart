@@ -65,8 +65,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   Color _feedbackColor = Colors.white;
   Timer? _feedbackTimer;
   late List<int> _stepScores;
-    bool _showScoreAnimation = false;
-    int _lastScoreIncrement = 0;
+  bool _showScoreAnimation = false;
+  int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
 
   // Prevents repeated scoring while holding the same pose
@@ -80,14 +80,16 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   bool _videoError = false;
   bool _isVideoPreparing = false;
   Completer<void>? _videoInitializationCompleter;
+  static final Map<int, VideoPlayerController> _videoCache = {};
+
+
 
   Future<String> _getDanceName(int danceId) async {
     final List<Map<String, dynamic>> dances = const [
+
       {'id': 1, 'name': 'JUMBO HOTDOG'},
-      {'id': 2, 'name': 'MODELONG CHARING'},
-      {'id': 3, 'name': 'ELECTRIC SLIDE'},
-      {'id': 4, 'name': 'CHA CHA SLIDE'},
-      {'id': 5, 'name': 'MACARENA'},
+      {'id': 2, 'name': 'MODELO'},
+
     ];
 
     final dance = dances.firstWhere(
@@ -113,6 +115,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
 
+
+  /// Initialize and prepare video for the selected dance
   void _initializeVideo() {
     setState(() {
       _isVideoPreparing = true;
@@ -120,49 +124,66 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     });
 
     final videoAssets = {
-      1: 'assets/videos/lv_0_20250908171807.mp4',
-      2: 'assets/videos/lv_0_20250908171807.mp4',
-      3: 'assets/videos/lv_0_20250908171807.mp4',
-      4: 'assets/videos/lv_0_20250908171807.mp4',
-      5: 'assets/videos/lv_0_20250908171807.mp4',
+      1: 'assets/videos/lv_0_20250923165813.mp4',
+      2: 'assets/videos/lv_0_20250923165845.mp4',
     };
 
-    final videoAsset = videoAssets[widget.danceId] ?? 'assets/videos/lv_0_20250908171807.mp4';
+    final videoAsset = videoAssets[widget.danceId]!;
+
+    // ✅ Reuse cached video controller only if it's fully initialized
+    if (_videoCache.containsKey(widget.danceId)) {
+      final cachedController = _videoCache[widget.danceId]!;
+      if (cachedController.value.isInitialized) {
+        _videoController = cachedController;
+        _isVideoInitialized = true;
+        _isVideoPreparing = false;
+        return;
+      } else {
+        // dispose broken cached controller
+        try {
+          cachedController.dispose();
+        } catch (e) {
+          debugPrint("Error disposing broken cached controller: $e");
+        }
+        _videoCache.remove(widget.danceId);
+      }
+    }
+
+    _videoController = VideoPlayerController.asset(videoAsset);
+    _videoController.addListener(_videoListener);
 
     _videoInitializationCompleter = Completer<void>();
 
-    _videoController = VideoPlayerController.asset(videoAsset)
-      ..initialize().then((_) {
-        if (mounted) {
-          setState(() {
-            _isVideoInitialized = true;
-            _isVideoPreparing = false;
-            debugPrint("Video initialized: ${_videoController.value.isInitialized}");
-            debugPrint("Video duration: ${_videoController.value.duration}");
-
-            _videoController.setLooping(true);
-            _videoController.setVolume(0.0);
-
-            if (!_videoInitializationCompleter!.isCompleted) {
-              _videoInitializationCompleter!.complete();
-            }
-          });
-        }
-      }).catchError((error) {
-        debugPrint("Error initializing video: $error");
-        if (mounted) {
-          setState(() {
-            _isVideoInitialized = false;
-            _isVideoPreparing = false;
-            _videoError = true;
-          });
-
-          if (!_videoInitializationCompleter!.isCompleted) {
-            _videoInitializationCompleter!.completeError(error);
-          }
-        }
+    _videoController.initialize().then((_) {
+      if (!mounted) return;
+      setState(() {
+        _isVideoInitialized = true;
+        _isVideoPreparing = false;
       });
+
+      _videoController.setLooping(true);
+      _videoController.setVolume(0.0);
+
+      _videoCache[widget.danceId] = _videoController; // ✅ cache controller
+
+      if (!_videoInitializationCompleter!.isCompleted) {
+        _videoInitializationCompleter!.complete();
+      }
+    }).catchError((error, stack) {
+      debugPrint("Video init error: $error\n$stack");
+      if (!mounted) return;
+      setState(() {
+        _isVideoInitialized = false;
+        _isVideoPreparing = false;
+        _videoError = true;
+      });
+      if (!_videoInitializationCompleter!.isCompleted) {
+        _videoInitializationCompleter!.completeError(error);
+      }
+    });
   }
+
+
 
   Future<void> _playVideoSafely() async {
     if (!mounted) return;
@@ -171,7 +192,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       try {
         await _videoInitializationCompleter!.future;
       } catch (e) {
-        debugPrint("Failed to initialize video: $e");
+        debugPrint("Video failed to initialize: $e");
         setState(() => _videoError = true);
         return;
       }
@@ -186,10 +207,20 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     try {
       setState(() => _showVideo = true);
 
-      await Future.delayed(const Duration(milliseconds: 100));
+      // ✅ Always restart from beginning when starting game
+      await _videoController.seekTo(Duration.zero);
+
+      await Future.delayed(const Duration(milliseconds: 150)); // small buffer
       if (!mounted) return;
 
-      await _videoController.play();
+      await _videoController.play().catchError((e) {
+        debugPrint("Error playing video: $e");
+        setState(() {
+          _videoError = true;
+          _isVideoPlaying = false;
+        });
+        _recoverVideoPlayback();
+      });
 
       if (mounted) {
         setState(() {
@@ -199,8 +230,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
 
       debugPrint("Video started playing successfully");
-    } catch (error) {
-      debugPrint("Error playing video: $error");
+    } catch (error, stack) {
+      debugPrint("Unexpected video play error: $error\n$stack");
       if (mounted) {
         setState(() {
           _videoError = true;
@@ -211,27 +242,44 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
-  void _recoverVideoPlayback() {
-    if (_videoError) {
-      debugPrint("Attempting to recover video playback");
-      _videoController.pause();
-      _videoController.dispose();
 
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          _initializeVideo();
-        }
-      });
+  void _recoverVideoPlayback() {
+    if (!_videoError) return;
+
+    debugPrint("Attempting to recover video playback");
+
+    // Remove old cached controller (if any)
+    if (_videoCache.containsKey(widget.danceId)) {
+      _videoCache.remove(widget.danceId);
     }
+
+    // Safely dispose old controller if initialized
+    try {
+      if (_isVideoInitialized && _videoController.value.isInitialized) {
+        _videoController.pause();
+      }
+      _videoController.dispose();
+    } catch (e) {
+      debugPrint("Error disposing video controller: $e");
+    }
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _initializeVideo();
+      }
+    });
   }
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null || !(_controller!.value.isInitialized)) return;
+    if (_controller == null || !_controller!.value.isInitialized) return;
 
     if (state == AppLifecycleState.inactive) {
       _controller?.dispose();
-      _videoController.pause();
+      if (_isVideoInitialized && _videoController.value.isInitialized) {
+        _videoController.pause();
+      }
     } else if (state == AppLifecycleState.resumed) {
       if (_controller != null) {
         _initializeCamera();
@@ -903,31 +951,45 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
   void _startCountdown() {
     _countdownTimer?.cancel();
-    _countdown = 3;
+    _countdown = 5;
+
+    // ✅ Start preparing the video while countdown is running
+    if (_videoInitializationCompleter != null) {
+      _videoInitializationCompleter!.future.then((_) {
+        debugPrint("Video ready before game starts");
+      }).catchError((e) {
+        debugPrint("Video failed to init during countdown: $e");
+      });
+    }
+
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdown > 1) {
           _countdown--;
         } else {
           _countdownTimer?.cancel();
-          _startGame();
+          _startGame(); // normal flow
         }
       });
     });
   }
 
+
   Future<void> _startGame() async {
     MusicService().playGameMusic(danceId: widget.danceId);
 
+    // ✅ Wait until the video is initialized before trying to play
     if (_videoInitializationCompleter != null) {
       try {
         await _videoInitializationCompleter!.future;
-      } catch (_) {
-        debugPrint("Video init failed, skipping playback");
+      } catch (e) {
+        debugPrint("Video init failed in _startGame: $e");
+        setState(() => _videoError = true);
+        return;
       }
     }
 
-    await _playVideoSafely();
+    await _playVideoSafely(); // ✅ guaranteed ready now
 
     setState(() {
       _isGameStarted = true;
@@ -948,7 +1010,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _gameTimer?.cancel();
     _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-
       setState(() {
         if (_timeRemaining > 0) {
           _timeRemaining--;
@@ -1341,15 +1402,22 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _feedbackTimer?.cancel();
     _alignmentTimer?.cancel();
 
-    // Proper video disposal
-    _videoController.pause();
-    _videoController.dispose();
+    try {
+      if (_isVideoInitialized && _videoController.value.isInitialized) {
+        _videoController.pause();
+      }
+      // ❌ Don’t dispose cached controllers, only dispose if not cached
+      if (!_videoCache.containsValue(_videoController)) {
+        _videoController.dispose();
+      }
+    } catch (e) {
+      debugPrint("Error disposing video controller: $e");
+    }
 
-    // Stop game music when screen is disposed
     MusicService().stopMusic();
-
     super.dispose();
   }
+
 
   // Add video listener to track state changes
   void _videoListener() {
@@ -1416,7 +1484,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return Scaffold(
       body: Stack(
         children: [
-          // Camera + Pose overlay aligned by shared image size and FittedBox scaling
+          // Camera + Pose overlay
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.cover,
@@ -1433,61 +1501,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             ),
           ),
 
-          // Video Guide (top-right corner) - Made smaller and positioned to not interfere with pose detection
-          if (_showVideo && _isVideoInitialized)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                width: 120,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  border: Border.all(color: Colors.white, width: 2),
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 8,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Stack(
-                    children: [
-                      AspectRatio(
-                        aspectRatio: _videoController.value.aspectRatio,
-                        child: VideoPlayer(_videoController),
-                      ),
-                      if (!_isVideoPlaying || _videoError)
-                        Container(
-                          color: Colors.black54,
-                          child: Center(
-                            child: _videoError
-                                ? const Icon(
-                              Icons.error_outline,
-                              color: Colors.red,
-                              size: 40,
-                            )
-                                : const Icon(
-                              Icons.play_arrow,
-                              color: Colors.white,
-                              size: 40,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
           // Video error message with retry button
           if (_videoError)
             Positioned(
-              top: 180, // Position below the video container
+              top: 180,
               right: 10,
               child: GestureDetector(
                 onTap: _recoverVideoPlayback,
@@ -1525,15 +1542,15 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                       Container(
                         width: 200,
                         height: 300,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: _isPerfectlyAligned
-                                ? Colors.green.withOpacity(0.7)
-                                : Colors.orange.withOpacity(0.7),
-                            width: 3,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                        // decoration: BoxDecoration(
+                        //   border: Border.all(
+                        //     color: _isPerfectlyAligned
+                        //         ? Colors.green.withOpacity(0.7)
+                        //         : Colors.orange.withOpacity(0.7),
+                        //     width: 3,
+                        //   ),
+                        //   borderRadius: BorderRadius.circular(10),
+                        // ),
                         child: Center(
                           child: Text(
                             _alignmentFeedback,
@@ -1574,186 +1591,188 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
           // Game UI
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // ✅ Score UI (Top-left)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          FutureBuilder<String>(
-                            future: _getDanceName(widget.danceId),
-                            builder: (context, snapshot) {
-                              String danceName = "Dance Challenge";
-                              if (snapshot.hasData) {
-                                danceName = snapshot.data!;
-                              }
-                              return Text(
-                                "$danceName",
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 5,
-                                      color: Colors.black,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                          Text(
-                            "Room: ${widget.roomCode}",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              color: Colors.white70,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 5,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      Text(
+                        "Score: $_totalScore",
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.yellow,
+                          shadows: [
+                            Shadow(blurRadius: 8, color: Colors.black),
+                          ],
+                        ),
                       ),
-                      // REMOVED: Timer display from here
+                      Text(
+                        "Step Score: $_currentStepScore/1000",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(blurRadius: 5, color: Colors.black),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
 
-                  const Spacer(),
-
-                  if (!_isGameStarted)
-                    Center(
-                      child: Column(
-                        children: [
-                          Text(
-                            _countdown.toString(),
+                  // ✅ Dance name + Room + Video (Top-right)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      FutureBuilder<String>(
+                        future: _getDanceName(widget.danceId),
+                        builder: (context, snapshot) {
+                          String danceName = "Dance Challenge";
+                          if (snapshot.hasData) {
+                            danceName = snapshot.data!;
+                          }
+                          return Text(
+                            danceName,
                             style: const TextStyle(
-                              fontSize: 100,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: Colors.cyanAccent,
                               shadows: [
-                                Shadow(
-                                  blurRadius: 10,
-                                  color: Colors.black,
-                                ),
+                                Shadow(blurRadius: 5, color: Colors.black),
                               ],
                             ),
-                          ),
-                          const Text(
-                            "Get ready to dance!",
-                            style: TextStyle(
-                              fontSize: 24,
-                              color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 5,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
-                    )
-                  else
-                    Center(
-                      child: Column(
-                        children: [
-                          Text(
-                            _danceSteps[_currentStep]['name'],
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.cyanAccent,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 10,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            _danceSteps[_currentStep]['description'],
-                            style: const TextStyle(
-                              fontSize: 18,
-                              color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 5,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 15),
-
-                          Text(
-                            "Step ${_currentStep + 1}/${_danceSteps.length} • ${_danceSteps[_currentStep]['duration']}s left",
-                            style: const TextStyle(
-                              fontSize: 18,
-                              color: Colors.white70,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 5,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Text(
-                            "Score: $_currentStepScore/1000",
-                            style: const TextStyle(
-                              fontSize: 18,
-                              color: Colors.white,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 5,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const Spacer(),
-
-                  if (_feedbackText.isNotEmpty)
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          _feedbackText,
-                          style: TextStyle(
-                            fontSize: 20,
-                            color: _feedbackColor,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      Text(
+                        "Room: ${widget.roomCode}",
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.white70,
+                          shadows: [
+                            Shadow(blurRadius: 5, color: Colors.black),
+                          ],
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+
+                      // ✅ Video below room info
+                      if (_showVideo)
+                        Container(
+                          width: 120,
+                          height: 160,
+                          decoration: BoxDecoration(
+                            color: Colors.black,
+                            border: Border.all(color: Colors.white, width: 2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _isVideoInitialized
+                              ? ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: AspectRatio(
+                              aspectRatio:
+                              _videoController.value.aspectRatio,
+                              child: VideoPlayer(_videoController),
+                            ),
+                          )
+                              : const Center(
+                            child: CircularProgressIndicator(
+                                color: Colors.white),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
+
+          // Countdown or Step instructions in the middle
+          Center(
+            child: !_isGameStarted
+                ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _countdown.toString(),
+                  style: const TextStyle(
+                    fontSize: 100,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.cyanAccent,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 10,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
+                const Text(
+                  "Get ready to dance!",
+                  style: TextStyle(
+                    fontSize: 24,
+                    color: Colors.white,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 5,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+                : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Step ${_currentStep + 1}/${_danceSteps.length} • ${_danceSteps[_currentStep]['duration']}s left",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    color: Colors.white70,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 5,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Feedback text (bottom-center)
+          if (_feedbackText.isNotEmpty)
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _feedbackText,
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: _feedbackColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-// ... (rest of the code remains the same)
 }
