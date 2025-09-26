@@ -10,6 +10,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:techdancing/screens/pactice_mode_screen.dart';
 import 'package:techdancing/screens/profile_Screen.dart';
 import 'create_dance_screen.dart';
+import 'endless_game_screen.dart';
 import 'multiplayer_screen.dart';
 import 'leaderboard_screen.dart';
 import '../services/music_service.dart';
@@ -572,6 +573,35 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
+  void _startEndlessMode(BuildContext context) {
+    if (!isOnline) {
+      _showOfflineWarning();
+      return;
+    }
+
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            EndlessGameScreen(userId: _currentUser['id'].toString()),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    ).then((_) {
+      _musicService.resumeMusic(screenName: 'menu');
+      _fetchUserStats();
+    });
+  }
+
   void goToLeaderboard(BuildContext context) {
     if (!isOnline) {
       _showOfflineWarning();
@@ -601,12 +631,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     });
   }
 
-  void _toggleMute() {
-    _musicService.toggleMute();
-    setState(() {
-      _isMuted = _musicService.isMuted;
-    });
-  }
+
 
   // Build featured dance card
   Widget _buildFeaturedDanceCard(int index) {
@@ -932,71 +957,212 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
         gradient: LinearGradient(
           colors: [
-            Color(0xFF666666).withOpacity(0.9),
-            Color(0xFF999999).withOpacity(0.9)
+            Colors.blue.shade600,
+            Colors.blue.shade800,
+            Colors.blue.shade900,
           ],
+          stops: const [0.0, 0.5, 1.0],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         boxShadow: [
           BoxShadow(
-            color: Color(0xFF666666).withOpacity(0.4),
-            blurRadius: 20,
-            spreadRadius: 3,
-            offset: const Offset(0, 8),
+            color: Colors.blue.shade900.withOpacity(0.6),
+            blurRadius: 25,
+            spreadRadius: 4,
+            offset: const Offset(0, 12),
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            spreadRadius: 2,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
         child: Stack(
           children: [
+            // Animated background particles
             Positioned.fill(
-              child: Opacity(
-                opacity: 0.1,
-                child: CustomPaint(
-                  painter: _DancePatternPainter(),
+              child: AnimatedContainer(
+                duration: const Duration(seconds: 3),
+                curve: Curves.easeInOut,
+                child: Opacity(
+                  opacity: 0.15,
+                  child: CustomPaint(
+                    painter: _AnimatedDancePatternPainter(),
+                  ),
                 ),
               ),
             ),
+
+            // Glow effect overlay
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment.topLeft,
+                    radius: 1.5,
+                    colors: [
+                      Colors.white.withOpacity(0.1),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Content
             Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Icon(
-                    isOnline ? Icons.campaign_outlined : Icons.wifi_off,
-                    color: Colors.white70,
-                    size: 48,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    isOnline ? 'NO ANNOUNCEMENTS' : 'OFFLINE MODE',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+              padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 36.0),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Animated icon with pulse effect
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.white.withOpacity(0.3),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        isOnline ? Icons.music_note_rounded : Icons.library_music_rounded,
+                        color: Colors.white,
+                        size: 80,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    isOnline
-                        ? 'Check back later for exciting updates and events!'
-                        : 'No internet connection. Some features may be limited.',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 14,
-                      fontStyle: FontStyle.italic,
+
+                    const SizedBox(height: 28),
+
+                    // Title with gradient text
+                    ShaderMask(
+                      shaderCallback: (bounds) => LinearGradient(
+                        colors: [
+                          Colors.white,
+                          Colors.white.withOpacity(0.8),
+                        ],
+                        stops: const [0.0, 1.0],
+                      ).createShader(bounds),
+                      child: Text(
+                        isOnline ? 'Welcome to the Beat!' : 'Your Music Library',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.4,
+                          height: 1.2,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+
+                    const SizedBox(height: 20),
+
+                    // Decorative divider
+                    Container(
+                      width: 60,
+                      height: 3,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.8),
+                            Colors.white.withOpacity(0.3),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Description text with improved typography
+                    RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          height: 1.6,
+                          fontWeight: FontWeight.w400,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: isOnline
+                                ? 'Amazing events and updates are coming soon! 🎵\n'
+                                : 'All your favorite tracks are ready to play! 🎧\n',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 19,
+                            ),
+                          ),
+                          TextSpan(
+                            text: isOnline
+                                ? 'Start exploring and create your perfect playlist.'
+                                : 'Enjoy your personal collection anytime.',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Interactive button
+                    if (isOnline)
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.3),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.explore_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Start Exploring',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -1184,6 +1350,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 20),
 
+                      // In the build method, replace the Container containing "GAME MODE" section:
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
@@ -1200,6 +1367,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             ),
                             const SizedBox(height: 12),
 
+                            // First row: Quick Play and Practice
                             Row(
                               children: [
                                 Expanded(
@@ -1238,7 +1406,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                               ),
                                             ),
                                           ),
-
                                           Padding(
                                             padding: const EdgeInsets.all(12.0),
                                             child: Column(
@@ -1312,7 +1479,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                               ),
                                             ),
                                           ),
-
                                           Padding(
                                             padding: const EdgeInsets.all(12.0),
                                             child: Column(
@@ -1353,71 +1519,153 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             const SizedBox(height: 12),
 
-                            // Multiplayer button
-                            GestureDetector(
-                              onTap: () {
-                                if (!isOnline) {
-                                  _showOfflineWarning();
-                                  return;
-                                }
-                                goToMultiplayer(context);
-                              },
-                              child: Container(
-                                height: 80, // Slightly smaller height
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Stack(
-                                  children: [
-                                    Positioned.fill(
-                                      child: Opacity(
-                                        opacity: 0.1,
-                                        child: CustomPaint(
-                                          painter: _DancePatternPainter(),
+                            // Second row: Endless Mode and Multiplayer
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => _startEndlessMode(context),
+                                    child: Container(
+                                      height: 120,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFFFF4081), Color(0xFFF50057)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
                                         ),
-                                      ),
-                                    ),
-
-                                    Center(
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.group,
-                                            color: Colors.white,
-                                            size: 24,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
                                           ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            "Multiplayer",
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
+                                        ],
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: Opacity(
+                                              opacity: 0.1,
+                                              child: CustomPaint(
+                                                painter: _DancePatternPainter(),
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(12.0),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Icon(
+                                                  Icons.all_inclusive,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  "Endless Mode",
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  "Test your limits",
+                                                  style: TextStyle(
+                                                    color: Colors.white.withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      if (!isOnline) {
+                                        _showOfflineWarning();
+                                        return;
+                                      }
+                                      goToMultiplayer(context);
+                                    },
+                                    child: Container(
+                                      height: 120,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: Opacity(
+                                              opacity: 0.1,
+                                              child: CustomPaint(
+                                                painter: _DancePatternPainter(),
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(12.0),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Icon(
+                                                  Icons.group,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  "Multiplayer",
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  "Dance with friends",
+                                                  style: TextStyle(
+                                                    color: Colors.white.withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
 
                             const SizedBox(height: 12),
 
+                            // Third row: Create Dance (full width)
                             GestureDetector(
                               onTap: () {
                                 if (!isOnline) {
@@ -1427,12 +1675,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 _goToCreateDance(context);
                               },
                               child: Container(
-                                height: 80, // Slightly smaller height
+                                height: 80,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(12),
                                   gradient: const LinearGradient(
-                                    colors: [Color(0xFFF40313), Color(
-                                        0xFF2C56DF)],
+                                    colors: [Color(0xFFF40313), Color(0xFF2C56DF)],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
                                   ),
@@ -1454,7 +1701,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                         ),
                                       ),
                                     ),
-
                                     Center(
                                       child: Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
@@ -1672,6 +1918,29 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       ],
     );
   }
+}
+
+class _AnimatedDancePatternPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    // Draw animated music waveform pattern
+    for (double i = 0; i < size.width; i += 15) {
+      final height = 20 + 15 * sin(DateTime.now().millisecondsSinceEpoch / 1000 + i);
+      canvas.drawLine(
+        Offset(i, size.height / 2 - height),
+        Offset(i, size.height / 2 + height),
+        paint..color = Colors.white.withOpacity(0.1 + 0.05 * cos(i)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class _DancePatternPainter extends CustomPainter {
