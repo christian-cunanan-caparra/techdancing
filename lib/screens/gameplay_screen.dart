@@ -69,12 +69,13 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
 
-  // Star Rating System
+  // Star Rating System - Updated for whole game
   int _currentStars = 0;
   int _maxStars = 8;
   List<AnimationController> _starControllers = [];
   List<Animation<double>> _starAnimations = [];
   bool _showStarRating = false;
+  int _totalPossibleScore = 0;
 
   // Score Animation
   AnimationController? _scoreAnimationController;
@@ -167,10 +168,28 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     ));
   }
 
-  void _updateStarRating(int newScore) {
-    // Calculate stars based on percentage of max step score (1000)
-    double percentage = (newScore / 1000).clamp(0.0, 1.0);
-    int newStars = (percentage * _maxStars).round();
+  void _updateStarRating() {
+    // Calculate stars based on percentage of total possible score for the whole game
+    double percentage = _totalPossibleScore == 0 ? 0 : (_totalScore / _totalPossibleScore * 100).clamp(0.0, 100.0);
+
+    int newStars = 0;
+    if (percentage >= 90) {
+      newStars = 8;
+    } else if (percentage >= 80) {
+      newStars = 7;
+    } else if (percentage >= 70) {
+      newStars = 6;
+    } else if (percentage >= 60) {
+      newStars = 5;
+    } else if (percentage >= 50) {
+      newStars = 4;
+    } else if (percentage >= 40) {
+      newStars = 3;
+    } else if (percentage >= 30) {
+      newStars = 2;
+    } else if (percentage >= 20) {
+      newStars = 1;
+    }
 
     if (newStars > _currentStars) {
       setState(() {
@@ -470,6 +489,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
 
     _stepScores = List.filled(_danceSteps.length, 0);
+    _totalPossibleScore = _danceSteps.length * 1000; // Each step can give max 1000 points
   }
 
   // ===== Alignment helper -> returns 1.0 (perfect), 0.6 (ok), or 0.0 (off) =====
@@ -973,13 +993,14 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     if (points <= 0) return;
     setState(() {
       _currentStepScore = min(_currentStepScore + points, 1000);
+      _totalScore += points;
       _lastScoreIncrement = points;
       _showScoreAnimation = true;
       _noPoseDetectedCount = 0;
     });
 
-    // Update star rating
-    _updateStarRating(_currentStepScore);
+    // Update star rating for the whole game
+    _updateStarRating();
 
     // Trigger score animation
     _triggerScoreAnimation();
@@ -1117,21 +1138,14 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     debugPrint("Current step score: $_currentStepScore");
 
     _stepScores[_currentStep] = _currentStepScore;
-    _totalScore += _currentStepScore;
 
     if (_currentStep < _danceSteps.length - 1) {
       setState(() {
         _currentStep++;
         _currentStepScore = 0;
-        _currentStars = 0;
         _poseMatched = false;
         _showAlignmentGuide = true;
         _isPerfectlyAligned = false;
-
-        // Reset all star animations
-        for (var controller in _starControllers) {
-          controller.reset();
-        }
 
         // Reset duration to original value
         _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['originalDuration'];
@@ -1547,7 +1561,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            "Step Rating",
+            "Overall Rating",
             style: TextStyle(
               color: Colors.white,
               fontSize: 16,
@@ -1565,7 +1579,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                     scale: _starAnimations[index].value,
                     child: Icon(
                       Icons.star,
-                      color: index < _currentStars ? Colors.yellow : Colors.grey,
+                      color: index < _currentStars ? _getStarColor(index, _currentStars) : Colors.grey,
                       size: 24,
                     ),
                   );
@@ -1584,6 +1598,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         ],
       ),
     );
+  }
+
+  // Helper function to determine star colors based on position and earned status
+  Color _getStarColor(int index, int stars) {
+    if (index >= stars) return Colors.grey; // Not earned
+
+    // Gradient of colors from first to last star
+    final List<Color> starColors = [
+      Colors.amber,
+      Colors.amber,
+      Colors.orange,
+      Colors.deepOrange,
+      Colors.red,
+      Colors.pink,
+      Colors.purple,
+      Colors.purpleAccent,
+    ];
+
+    return starColors[index];
   }
 
   // Widget to build score animation
@@ -1869,7 +1902,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             ),
           ),
 
-          // Star Rating Display (Top Center)
+          // Star Rating Display (Top Center) - Now shows overall game rating
           if (_showStarRating && _isGameStarted)
             Positioned(
               top: 100,

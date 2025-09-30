@@ -1099,15 +1099,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                           fontWeight: FontWeight.w400,
                         ),
                         children: [
-                          TextSpan(
-                            text: isOnline
-                                ? 'Amazing events and updates are coming soon! 🎵\n'
-                                : 'All your favorite tracks are ready to play! 🎧\n',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 19,
-                            ),
-                          ),
+
                           TextSpan(
                             text: isOnline
                                 ? 'Start exploring and create your perfect playlist.'
