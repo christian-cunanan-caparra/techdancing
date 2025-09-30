@@ -3,13 +3,14 @@ import 'package:techdancing/screens/achievements_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:ui';
+
 import 'package:techdancing/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:techdancing/screens/pactice_mode_screen.dart';
 import 'package:techdancing/screens/profile_Screen.dart';
 import 'create_dance_screen.dart';
+import 'custom_dance_selection_screen.dart';
 import 'endless_game_screen.dart';
 import 'multiplayer_screen.dart';
 import 'leaderboard_screen.dart';
@@ -29,7 +30,7 @@ class MainMenuScreen extends StatefulWidget {
 class _MainMenuScreenState extends State<MainMenuScreen>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final MusicService _musicService = MusicService();
-  bool _isMuted = false;
+
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
@@ -187,7 +188,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       // Restart carousel with updated data
       _startCarouselAutoScroll();
     } catch (e) {
-      print('Error refreshing announcements: $e');
+
       // Don't show error if we have cached data to display
       if (!_hasCachedAnnouncements || _cachedAnnouncements.isEmpty) {
         setState(() {
@@ -343,7 +344,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     await _musicService.initialize();
     _musicService.playMenuMusic(screenName: 'menu');
     setState(() {
-      _isMuted = _musicService.isMuted;
+
     });
   }
 
@@ -1348,6 +1349,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                           ),
                         ),
 
+
+
+
                       const SizedBox(height: 20),
 
                       // In the build method, replace the Container containing "GAME MODE" section:
@@ -1727,6 +1731,88 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                               ),
                             ),
                           ],
+                        ),
+                      ),
+
+
+
+                      const SizedBox(height: 12),
+
+
+                      // Add this to your game modes in MainMenuScreen
+                      // Add this card to your game modes grid/layout
+                      GestureDetector(
+                        onTap: () {
+                          if (!isOnline) {
+                            _showOfflineWarning();
+                            return;
+                          }
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CustomDanceSelectionScreen(user: _currentUser),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          height: 120,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF9C27B0), Color(0xFF673AB7)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: Opacity(
+                                  opacity: 0.1,
+                                  child: CustomPaint(
+                                    painter: _DancePatternPainter(),
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(12.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(
+                                      Icons.emoji_people,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      "My Dances",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      "Play your creations",
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.8),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
 

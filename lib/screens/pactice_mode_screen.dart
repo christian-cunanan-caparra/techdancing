@@ -421,7 +421,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
   Timer? _countdownTimer;
   Timer? _gameTimer;
   int _timeRemaining = 60;
-  final double _smoothingFactor = 0.3;
+  final double _smoothingFactor = 0.05; // Reduced for less delay
 
   // Scoring
   int _totalScore = 0;
@@ -435,12 +435,18 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
   int _consecutiveGoodPoses = 0;
   bool _poseMatched = false;
 
+  // Performance optimization
+  DateTime? _lastProcessingTime;
+  int _framesProcessed = 0;
+  double _averageProcessingTime = 0;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
-    _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
+    // Use faster model for real-time performance
+    _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.base));
     _loadDanceSteps();
 
     // Pause menu music when entering gameplay
@@ -466,43 +472,38 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
       case 1: // JUMBO CHACHA
         _danceSteps = [
           {
-            'name': 'Intro Sway',
+            'name': 'Intro Sway', // Keep name for result screen
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
             'scoringLogic': _scoreIntroSway,
           },
           {
-            'name': 'Chacha Step',
+            'name': 'Chacha Step', // Keep name for result screen
             'description': 'Side chacha with arm movements',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Walang mawawala\nKapag nagchachaga\nKung gustong gusto mo\nSundan mo lang ako',
             'scoringLogic': _scoreChachaStep,
           },
           {
-            'name': 'Jumbo Pose',
+            'name': 'Jumbo Pose', // Keep name for result screen
             'description': 'Arms wide open, then pointing forward',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nKaya mo ba to?\nKaya mo ba to?',
             'scoringLogic': _scoreJumboPose,
           },
           {
-            'name': 'Hotdog Point',
+            'name': 'Hotdog Point', // Keep name for result screen
             'description': 'Pointing forward with alternating arms',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Jumbo hotdog\nKaya mo ba to?\nHindi kami ba to\nPara magpatalo',
             'scoringLogic': _scoreHotdogPoint,
           },
           {
-            'name': 'Final Celebration',
+            'name': 'Final Celebration', // Keep name for result screen
             'description': 'Hands on hips with confident stance',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Jumbo hotdog!\nKaya natin to!\nJumbo hotdog!\nAng sarap talaga!',
             'scoringLogic': _scoreFinalCelebration,
           },
         ];
@@ -511,59 +512,52 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
       case 2: // PAA TUHOD BALIKAT ULO
         _danceSteps = [
           {
-            'name': 'Paa (Feet)',
+            'name': 'Paa (Feet)', // Keep name for result screen
             'description': 'Touch your feet with both hands',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Paa, paa, paa\nHawakan ang paa',
             'scoringLogic': _scorePaaStep,
           },
           {
-            'name': 'Tuhod (Knees)',
+            'name': 'Tuhod (Knees)', // Keep name for result screen
             'description': 'Touch your knees with both hands',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Tuhod, tuhod, tuhod\nHawakan ang tuhod',
             'scoringLogic': _scoreTuhodStep,
           },
           {
-            'name': 'Balikat (Shoulders)',
+            'name': 'Balikat (Shoulders)', // Keep name for result screen
             'description': 'Touch your shoulders with both hands',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Balikat, balikat, balikat\nHawakan ang balikat',
             'scoringLogic': _scoreBalikatStep,
           },
           {
-            'name': 'Ulo (Head)',
+            'name': 'Ulo (Head)', // Keep name for result screen
             'description': 'Touch your head with both hands',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Ulo, ulo, ulo\nHawakan ang ulo',
             'scoringLogic': _scoreUloStep,
           },
           {
-            'name': 'Fast Sequence 1',
+            'name': 'Fast Sequence 1', // Keep name for result screen
             'description': 'Quick: Paa, Tuhod, Balikat, Ulo!',
             'duration': 4,
             'originalDuration': 4,
-            'lyrics': 'Paa, tuhod, balikat, ulo!',
             'scoringLogic': _scoreFastSequence,
           },
           {
-            'name': 'Fast Sequence 2',
+            'name': 'Fast Sequence 2', // Keep name for result screen
             'description': 'Faster: Paa, Tuhod, Balikat, Ulo!',
             'duration': 4,
             'originalDuration': 4,
-            'lyrics': 'Paa, tuhod, balikat, ulo!',
             'scoringLogic': _scoreFastSequence,
           },
           {
-            'name': 'Final Pose',
+            'name': 'Final Pose', // Keep name for result screen
             'description': 'End with hands up celebration',
             'duration': 4,
             'originalDuration': 4,
-            'lyrics': 'Tapos na!',
             'scoringLogic': _scoreFinalPose,
           },
         ];
@@ -572,11 +566,10 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
       default: // Default to JUMBO CHACHA
         _danceSteps = [
           {
-            'name': 'Intro Sway',
+            'name': 'Intro Sway', // Keep name for result screen
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'lyrics': 'Sumabay ka nalang\nWag kang mahihiya\nSige subukan mo\nBaka may mapala',
             'scoringLogic': _scoreIntroSway,
           },
         ];
@@ -1212,7 +1205,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
 
       _controller = CameraController(
         camera,
-        ResolutionPreset.low,
+        ResolutionPreset.low, // Use low resolution for faster processing
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -1347,7 +1340,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
     final smoothedPose = Pose(landmarks: smoothedLandmarks);
     _previousPoses.add(smoothedPose);
 
-    if (_previousPoses.length > 5) {
+    if (_previousPoses.length > 3) { // Reduced buffer size for less delay
       _previousPoses.removeAt(0);
     }
 
@@ -1356,7 +1349,15 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
 
   void _processCameraImage(CameraImage image) async {
     if (_isBusy || !mounted || !_isGameStarted || !_poseDetectionEnabled) return;
+
+    final now = DateTime.now();
+    if (_lastProcessingTime != null) {
+      final timeSinceLast = now.difference(_lastProcessingTime!).inMilliseconds;
+      if (timeSinceLast < 16) return; // Limit to ~60fps max
+    }
+
     _isBusy = true;
+    _lastProcessingTime = now;
 
     try {
       final inputImage = _inputImageFromCameraImage(image);
@@ -1366,6 +1367,8 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
       }
 
       final poses = await _poseDetector.processImage(inputImage);
+      _framesProcessed++;
+
       if (poses.isNotEmpty) {
         final smoothedPose = _smoothPose(poses.first);
         _noPoseDetectedCount = 0;
@@ -1405,13 +1408,13 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
 
       try {
         await _poseDetector.close();
-        _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
+        _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.base));
       } catch (e) {
         debugPrint("Error reinitializing pose detector: $e");
       }
     } finally {
-      if (mounted) setState(() {});
       _isBusy = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -1681,20 +1684,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
                     Center(
                       child: Column(
                         children: [
-                          Text(
-                            _danceSteps[_currentStep]['name'],
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.cyanAccent,
-                              shadows: [
-                                Shadow(
-                                  blurRadius: 10,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
-                          ),
+                          // Removed dance name display
                           const SizedBox(height: 10),
                           Text(
                             _danceSteps[_currentStep]['description'],
@@ -1711,28 +1701,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 15),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _danceSteps[_currentStep]['lyrics'],
-                              style: const TextStyle(
-                                fontSize: 16,
-                                color: Colors.yellow,
-                                fontStyle: FontStyle.italic,
-                                shadows: [
-                                  Shadow(
-                                    blurRadius: 5,
-                                    color: Colors.black,
-                                  ),
-                                ],
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
+                          // Removed lyrics container
                           const SizedBox(height: 20),
                           Text(
                             "Step ${_currentStep + 1}/${_danceSteps.length}",
@@ -1911,133 +1880,135 @@ class PracticeResultScreen extends StatelessWidget {
     }
 
     return Scaffold(
-        backgroundColor: Colors.black87,
-        body: SafeArea(
+      backgroundColor: Colors.black87,
+      body: SafeArea(
         child: Padding(
-        padding: const EdgeInsets.all(20),
-    child: Column(
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-    const Text(
-    "Practice Complete",
-    style: TextStyle(
-    fontSize: 32,
-    fontWeight: FontWeight.bold,
-    color: Colors.white,
-    ),
-    ),
-    const SizedBox(height: 30),
-    Text(
-    "Total Score: $totalScore",
-    style: const TextStyle(
-    fontSize: 28,
-    color: Colors.white,
-    ),
-    ),
-    const SizedBox(height: 15),
-    Text(
-    resultText,
-    style: TextStyle(
-    fontSize: 24,
-    color: resultColor,
-    fontWeight: FontWeight.bold,
-    ),
-    ),
-    const SizedBox(height: 30),
-    Expanded(
-    child: ListView(
-    children: [
-      const Text(
-        "Step Scores:",
-        style: TextStyle(
-          fontSize: 20,
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-        ),
-        textAlign: TextAlign.center,
-      ),
-      const SizedBox(height: 15),
-      ...danceSteps.asMap().entries.map((entry) {
-        final idx = entry.key;
-        final step = entry.value;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Expanded(
-                child: Text(
-                  step['name'],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.white70,
-                  ),
+              const Text(
+                "Practice Complete",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
+              const SizedBox(height: 30),
               Text(
-                "${stepScores[idx]} pts",
+                "Total Score: $totalScore",
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 28,
                   color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                resultText,
+                style: TextStyle(
+                  fontSize: 24,
+                  color: resultColor,
                   fontWeight: FontWeight.bold,
                 ),
               ),
+              const SizedBox(height: 30),
+              Expanded(
+                child: ListView(
+                  children: [
+                    const Text(
+                      "Step Scores:",
+                      style: TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 15),
+                    ...danceSteps.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final step = entry.value;
+                      // Use description if name is not available
+                      final stepName = step['name'] ?? step['description'] ?? 'Step ${idx + 1}';
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                stepName,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              "${stepScores[idx]} pts",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.cyanAccent,
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    ),
+                    child: const Text(
+                      "BACK",
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => PracticeModeScreen(user: {}),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.purpleAccent,
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    ),
+                    child: const Text(
+                      "PRACTICE AGAIN",
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-        );
-      }).toList(),
-    ],
-    ),
-    ),
-      const SizedBox(height: 20),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.cyanAccent,
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-            ),
-            child: const Text(
-              "BACK",
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PracticeModeScreen(user: {}),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purpleAccent,
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-            ),
-            child: const Text(
-              "PRACTICE AGAIN",
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
-    ],
-    ),
-        ),
-        ),
     );
   }
 }

@@ -27,7 +27,7 @@ class GameplayScreen extends StatefulWidget {
   State<GameplayScreen> createState() => _GameplayScreenState();
 }
 
-class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObserver {
+class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   CameraController? _controller;
   bool _isCameraInitialized = false;
   late PoseDetector _poseDetector;
@@ -69,6 +69,18 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
 
+  // Star Rating System
+  int _currentStars = 0;
+  int _maxStars = 8;
+  List<AnimationController> _starControllers = [];
+  List<Animation<double>> _starAnimations = [];
+  bool _showStarRating = false;
+
+  // Score Animation
+  AnimationController? _scoreAnimationController;
+  Animation<double>? _scoreScaleAnimation;
+  Animation<Offset>? _scorePositionAnimation;
+
   // Prevents repeated scoring while holding the same pose
   bool _poseMatched = false;
 
@@ -82,14 +94,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   Completer<void>? _videoInitializationCompleter;
   static final Map<int, VideoPlayerController> _videoCache = {};
 
-
-
   Future<String> _getDanceName(int danceId) async {
     final List<Map<String, dynamic>> dances = const [
-
       {'id': 1, 'name': 'JUMBO HOTDOG'},
       {'id': 2, 'name': 'MODELO'},
-
     ];
 
     final dance = dances.firstWhere(
@@ -108,13 +116,94 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
     _loadDanceSteps();
     _initializeVideo();
+    _initializeStarAnimations();
+    _initializeScoreAnimation();
 
     // Pause menu music when entering gameplay
     MusicService().pauseMusic(rememberToResume: false);
     _startCountdown();
   }
 
+  void _initializeStarAnimations() {
+    for (int i = 0; i < _maxStars; i++) {
+      final controller = AnimationController(
+        duration: const Duration(milliseconds: 300),
+        vsync: this,
+      );
 
+      final animation = Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).animate(CurvedAnimation(
+        parent: controller,
+        curve: Curves.elasticOut,
+      ));
+
+      _starControllers.add(controller);
+      _starAnimations.add(animation);
+    }
+  }
+
+  void _initializeScoreAnimation() {
+    _scoreAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scoreScaleAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _scoreAnimationController!,
+      curve: Curves.elasticOut,
+    ));
+
+    _scorePositionAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _scoreAnimationController!,
+      curve: Curves.easeOut,
+    ));
+  }
+
+  void _updateStarRating(int newScore) {
+    // Calculate stars based on percentage of max step score (1000)
+    double percentage = (newScore / 1000).clamp(0.0, 1.0);
+    int newStars = (percentage * _maxStars).round();
+
+    if (newStars > _currentStars) {
+      setState(() {
+        _currentStars = newStars;
+        _showStarRating = true;
+      });
+
+      // Animate the new stars
+      for (int i = 0; i < newStars; i++) {
+        Future.delayed(Duration(milliseconds: i * 100), () {
+          if (i < _starControllers.length) {
+            _starControllers[i].forward();
+          }
+        });
+      }
+
+      // Hide star rating after some time
+      Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _showStarRating = false;
+          });
+        }
+      });
+    }
+  }
+
+  void _triggerScoreAnimation() {
+    if (_scoreAnimationController != null) {
+      _scoreAnimationController!.reset();
+      _scoreAnimationController!.forward();
+    }
+  }
 
   /// Initialize and prepare video for the selected dance
   void _initializeVideo() {
@@ -183,8 +272,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     });
   }
 
-
-
   Future<void> _playVideoSafely() async {
     if (!mounted) return;
 
@@ -242,7 +329,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
-
   void _recoverVideoPlayback() {
     if (!_videoError) return;
 
@@ -269,7 +355,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     });
   }
-
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -386,7 +471,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     _stepScores = List.filled(_danceSteps.length, 0);
   }
-
 
   // ===== Alignment helper -> returns 1.0 (perfect), 0.6 (ok), or 0.0 (off) =====
   double get _alignmentMultiplier {
@@ -685,8 +769,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
-
-
   void _scoreIntroSway(Pose pose) {
     final m = _alignmentMultiplier;
     if (m == 0.0) {
@@ -728,9 +810,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _poseMatched = false;
     }
   }
-
-
-
 
   void _scoreChachaStep(Pose pose) {
     final m = _alignmentMultiplier;
@@ -899,6 +978,12 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _noPoseDetectedCount = 0;
     });
 
+    // Update star rating
+    _updateStarRating(_currentStepScore);
+
+    // Trigger score animation
+    _triggerScoreAnimation();
+
     Timer(const Duration(milliseconds: 800), () {
       if (mounted) {
         setState(() {
@@ -907,9 +992,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     });
   }
-
-
-
 
   double _calculateAngle(PoseLandmark a, PoseLandmark b, PoseLandmark c) {
     final baX = a.x - b.x;
@@ -974,7 +1056,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     });
   }
 
-
   Future<void> _startGame() async {
     MusicService().playGameMusic(danceId: widget.danceId);
 
@@ -997,6 +1078,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _timeRemaining = 60;
       _totalScore = 0;
       _currentStepScore = 0;
+      _currentStars = 0;
       _stepScores = List.filled(_danceSteps.length, 0);
       _poseDetectionEnabled = true;
       _showAlignmentGuide = true;
@@ -1030,9 +1112,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     });
   }
 
-
-
-
   void _nextStep() {
     debugPrint("Moving from step $_currentStep to ${_currentStep + 1}");
     debugPrint("Current step score: $_currentStepScore");
@@ -1044,9 +1123,15 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       setState(() {
         _currentStep++;
         _currentStepScore = 0;
+        _currentStars = 0;
         _poseMatched = false;
         _showAlignmentGuide = true;
         _isPerfectlyAligned = false;
+
+        // Reset all star animations
+        for (var controller in _starControllers) {
+          controller.reset();
+        }
 
         // Reset duration to original value
         _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['originalDuration'];
@@ -1401,12 +1486,17 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _gameTimer?.cancel();
     _feedbackTimer?.cancel();
     _alignmentTimer?.cancel();
+    _scoreAnimationController?.dispose();
+
+    for (var controller in _starControllers) {
+      controller.dispose();
+    }
 
     try {
       if (_isVideoInitialized && _videoController.value.isInitialized) {
         _videoController.pause();
       }
-      // ❌ Don’t dispose cached controllers, only dispose if not cached
+      // ❌ Don't dispose cached controllers, only dispose if not cached
       if (!_videoCache.containsValue(_videoController)) {
         _videoController.dispose();
       }
@@ -1417,7 +1507,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     MusicService().stopMusic();
     super.dispose();
   }
-
 
   // Add video listener to track state changes
   void _videoListener() {
@@ -1446,6 +1535,105 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
+  // Widget to build star rating display
+  Widget _buildStarRating() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            "Step Rating",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_maxStars, (index) {
+              return AnimatedBuilder(
+                animation: _starAnimations[index],
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _starAnimations[index].value,
+                    child: Icon(
+                      Icons.star,
+                      color: index < _currentStars ? Colors.yellow : Colors.grey,
+                      size: 24,
+                    ),
+                  );
+                },
+              );
+            }),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "$_currentStars/$_maxStars Stars",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Widget to build score animation
+  Widget _buildScoreAnimation() {
+    if (_scoreAnimationController == null ||
+        _scoreScaleAnimation == null ||
+        _scorePositionAnimation == null) {
+      return const SizedBox();
+    }
+
+    return AnimatedBuilder(
+      animation: _scoreAnimationController!,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: _scorePositionAnimation!.value * 100,
+          child: Transform.scale(
+            scale: _scoreScaleAnimation!.value,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Text(
+                "+$_lastScoreIncrement",
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      blurRadius: 5,
+                      color: Colors.black,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1542,15 +1730,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                       Container(
                         width: 200,
                         height: 300,
-                        // decoration: BoxDecoration(
-                        //   border: Border.all(
-                        //     color: _isPerfectlyAligned
-                        //         ? Colors.green.withOpacity(0.7)
-                        //         : Colors.orange.withOpacity(0.7),
-                        //     width: 3,
-                        //   ),
-                        //   borderRadius: BorderRadius.circular(10),
-                        // ),
                         child: Center(
                           child: Text(
                             _alignmentFeedback,
@@ -1690,6 +1869,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             ),
           ),
 
+          // Star Rating Display (Top Center)
+          if (_showStarRating && _isGameStarted)
+            Positioned(
+              top: 100,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: _buildStarRating(),
+              ),
+            ),
+
+          // Score Animation (Center)
+          if (_showScoreAnimation && _isGameStarted)
+            Positioned.fill(
+              child: Center(
+                child: _buildScoreAnimation(),
+              ),
+            ),
+
           // Countdown or Step instructions in the middle
           Center(
             child: !_isGameStarted
@@ -1774,5 +1972,4 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       ),
     );
   }
-
 }
