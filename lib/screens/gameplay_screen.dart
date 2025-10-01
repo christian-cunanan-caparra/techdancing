@@ -69,7 +69,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   int _lastScoreIncrement = 0;
   int _consecutiveGoodPoses = 0;
 
-  // Star Rating System - Updated for whole game
+  // Star Rating System
   int _currentStars = 0;
   int _maxStars = 8;
   List<AnimationController> _starControllers = [];
@@ -85,7 +85,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   // Prevents repeated scoring while holding the same pose
   bool _poseMatched = false;
 
-  // Video Player - Updated variables for better state tracking
+  // Video Player
   late VideoPlayerController _videoController;
   bool _isVideoInitialized = false;
   bool _showVideo = false;
@@ -169,7 +169,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   }
 
   void _updateStarRating() {
-    // Calculate stars based on percentage of total possible score for the whole game
     double percentage = _totalPossibleScore == 0 ? 0 : (_totalScore / _totalPossibleScore * 100).clamp(0.0, 100.0);
 
     int newStars = 0;
@@ -197,7 +196,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _showStarRating = true;
       });
 
-      // Animate the new stars
       for (int i = 0; i < newStars; i++) {
         Future.delayed(Duration(milliseconds: i * 100), () {
           if (i < _starControllers.length) {
@@ -206,7 +204,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         });
       }
 
-      // Hide star rating after some time
       Timer(const Duration(seconds: 3), () {
         if (mounted) {
           setState(() {
@@ -238,7 +235,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     final videoAsset = videoAssets[widget.danceId]!;
 
-    // ✅ Reuse cached video controller only if it's fully initialized
+    // Reuse cached video controller only if it's fully initialized
     if (_videoCache.containsKey(widget.danceId)) {
       final cachedController = _videoCache[widget.danceId]!;
       if (cachedController.value.isInitialized) {
@@ -247,7 +244,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _isVideoPreparing = false;
         return;
       } else {
-        // dispose broken cached controller
         try {
           cachedController.dispose();
         } catch (e) {
@@ -272,7 +268,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _videoController.setLooping(true);
       _videoController.setVolume(0.0);
 
-      _videoCache[widget.danceId] = _videoController; // ✅ cache controller
+      _videoCache[widget.danceId] = _videoController;
 
       if (!_videoInitializationCompleter!.isCompleted) {
         _videoInitializationCompleter!.complete();
@@ -313,10 +309,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     try {
       setState(() => _showVideo = true);
 
-      // ✅ Always restart from beginning when starting game
       await _videoController.seekTo(Duration.zero);
 
-      await Future.delayed(const Duration(milliseconds: 150)); // small buffer
+      await Future.delayed(const Duration(milliseconds: 150));
       if (!mounted) return;
 
       await _videoController.play().catchError((e) {
@@ -353,12 +348,10 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
 
     debugPrint("Attempting to recover video playback");
 
-    // Remove old cached controller (if any)
     if (_videoCache.containsKey(widget.danceId)) {
       _videoCache.remove(widget.danceId);
     }
 
-    // Safely dispose old controller if initialized
     try {
       if (_isVideoInitialized && _videoController.value.isInitialized) {
         _videoController.pause();
@@ -403,35 +396,35 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'scoringLogic': _scoreIntroSway as ScoreFn,
+            'scoringLogic': _scoreIntroSway,
           },
           {
             'name': 'Chacha Step',
             'description': 'Side chacha with arm movements',
             'duration': 9.5,
             'originalDuration': 9.5,
-            'scoringLogic': _scoreChachaStep as ScoreFn,
+            'scoringLogic': _scoreChachaStep,
           },
           {
             'name': 'Jumbo Pose',
             'description': 'Arms wide open, then pointing forward',
             'duration': 10,
             'originalDuration': 10,
-            'scoringLogic': _scoreJumboPose as ScoreFn,
+            'scoringLogic': _scoreJumboPose,
           },
           {
             'name': 'Hotdog Point',
             'description': 'Pointing forward with alternating arms',
             'duration': 10,
             'originalDuration': 10,
-            'scoringLogic': _scoreHotdogPoint as ScoreFn,
+            'scoringLogic': _scoreHotdogPoint,
           },
           {
             'name': 'Final Celebration',
             'description': 'Hands on hips with confident stance',
             'duration': 5,
             'originalDuration': 5,
-            'scoringLogic': _scoreFinalCelebration as ScoreFn,
+            'scoringLogic': _scoreFinalCelebration,
           },
         ];
         break;
@@ -443,56 +436,56 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             'description': 'Strike a model pose with confidence',
             'duration': 10,
             'originalDuration': 10,
-            'scoringLogic': _scoreModelPose as ScoreFn,
+            'scoringLogic': _scoreModelPose,
           },
           {
             'name': 'Arms Wave',
             'description': 'Wave arms gracefully side to side',
             'duration': 8,
             'originalDuration': 8,
-            'scoringLogic': _scoreArmsWave as ScoreFn,
+            'scoringLogic': _scoreArmsWave,
           },
           {
             'name': 'Hip Sway',
             'description': 'Sway hips from side to side',
             'duration': 8,
             'originalDuration': 8,
-            'scoringLogic': _scoreHipSway as ScoreFn,
+            'scoringLogic': _scoreHipSway,
           },
           {
             'name': 'Star Pose',
             'description': 'Form a star shape with arms and legs',
             'duration': 3.2,
             'originalDuration': 3.2,
-            'scoringLogic': _scoreStarPose as ScoreFn,
+            'scoringLogic': _scoreStarPose,
           },
           {
             'name': 'Final Pose',
             'description': 'End with a dramatic finishing pose',
             'duration': 3,
             'originalDuration': 3,
-            'scoringLogic': _scoreFinalPose as ScoreFn,
+            'scoringLogic': _scoreFinalPose,
           },
         ];
         break;
 
-      default: // Default to JUMBO CHACHA
+      default:
         _danceSteps = [
           {
             'name': 'Intro Sway',
             'description': 'Gentle side-to-side sway with arms',
             'duration': 8,
             'originalDuration': 8,
-            'scoringLogic': _scoreIntroSway as ScoreFn,
+            'scoringLogic': _scoreIntroSway,
           },
         ];
     }
 
     _stepScores = List.filled(_danceSteps.length, 0);
-    _totalPossibleScore = _danceSteps.length * 1000; // Each step can give max 1000 points
+    _totalPossibleScore = _danceSteps.length * 1000;
   }
 
-  // ===== Alignment helper -> returns 1.0 (perfect), 0.6 (ok), or 0.0 (off) =====
+  // Alignment helper
   double get _alignmentMultiplier {
     if (_isPerfectlyAligned) return 1.0;
 
@@ -500,7 +493,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final dy = _bodyAlignment.y.abs();
     final scale = _bodyScale;
 
-    // More lenient alignment thresholds
     final okAligned = (dx <= 0.4 && dy <= 0.4 && scale >= 0.5 && scale <= 1.6);
     final offFrame = !(scale >= 0.4 && scale <= 1.8) || dx > 0.7 || dy > 0.7;
 
@@ -525,55 +517,43 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
     final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
 
-    // Count visible upper body landmarks
     final upperBodyLandmarks = [leftHip, rightHip, leftShoulder, rightShoulder, leftWrist, rightWrist];
     final visibleLandmarks = upperBodyLandmarks.where((lm) => lm != null).length;
 
-    // If we don't have enough landmarks for a model pose
     if (visibleLandmarks < 4) {
       _poseMatched = false;
       _updateFeedback("Show your upper body!", Colors.orange);
       return;
     }
 
-    // For model pose, we need at least shoulders and hips visible
     if (leftShoulder == null || rightShoulder == null || leftHip == null || rightHip == null) {
       _poseMatched = false;
       _updateFeedback("Show your shoulders and hips!", Colors.orange);
       return;
     }
 
-    // Check for model pose (one hand on hip, confident stance)
     bool handOnHip = false;
 
-    // Check left hand on left hip
     if (leftWrist != null && leftHip != null) {
       handOnHip = handOnHip || _distance(leftWrist, leftHip) < 60;
     }
 
-    // Check right hand on right hip
     if (rightWrist != null && rightHip != null) {
       handOnHip = handOnHip || _distance(rightWrist, rightHip) < 60;
     }
 
-    // Check left hand on right hip (cross body)
     if (leftWrist != null && rightHip != null) {
       handOnHip = handOnHip || _distance(leftWrist, rightHip) < 70;
     }
 
-    // Check right hand on left hip (cross body)
     if (rightWrist != null && leftHip != null) {
       handOnHip = handOnHip || _distance(rightWrist, leftHip) < 70;
     }
 
-    // Check for confident stance (shoulders back, chest out)
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final hipWidth = (leftHip.x - rightHip.x).abs();
-
-    // More lenient stance detection for partial poses
     final confidentStance = shoulderWidth > hipWidth * 0.7;
 
-    // Also check if arms are in a model-like position (not hanging straight down)
     bool armsInPosition = false;
     if (leftWrist != null && rightWrist != null && leftShoulder != null && rightShoulder != null) {
       final leftArmRaised = leftWrist.y < leftShoulder.y + 50;
@@ -639,11 +619,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for arm wave motion (arms moving up and down alternately)
     final leftArmHeight = (leftWrist.y - leftShoulder.y).abs();
     final rightArmHeight = (rightWrist.y - rightShoulder.y).abs();
-
-    // Arms should be at different heights for the wave motion
     final heightDifference = (leftArmHeight - rightArmHeight).abs();
 
     if (heightDifference > 30 && (leftArmHeight > 40 || rightArmHeight > 40)) {
@@ -725,7 +702,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for star pose (arms and legs spread out)
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final wristWidth = (leftWrist.x - rightWrist.x).abs();
     final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
@@ -768,7 +744,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for dramatic final pose (arms up high)
     final leftArmUp = leftWrist.y < nose.y - 50;
     final rightArmUp = rightWrist.y < nose.y - 50;
     final armsUp = leftArmUp && rightArmUp;
@@ -808,11 +783,8 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for gentle swaying motion (arms moving together)
     final leftArmHeight = (leftWrist.y - leftShoulder.y).abs();
     final rightArmHeight = (rightWrist.y - rightShoulder.y).abs();
-
-    // Both arms should be at similar height for the sway
     final heightDifference = (leftArmHeight - rightArmHeight).abs();
 
     if (heightDifference < 50 && leftArmHeight > 50 && rightArmHeight > 50) {
@@ -850,7 +822,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for chacha step (feet wider than hips)
     final hipWidth = (leftHip.x - rightHip.x).abs();
     final ankleWidth = (leftAnkle.x - rightAnkle.x).abs();
 
@@ -889,7 +860,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for "Jumbo" pose (arms wide and up)
     final leftArmSpread = (leftWrist.x - leftShoulder.x).abs();
     final rightArmSpread = (rightWrist.x - rightShoulder.x).abs();
     final armsUp = leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y;
@@ -929,11 +899,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for pointing motion (one arm extended forward)
     final leftArmExtended = (leftWrist.x - leftElbow.x).abs() > 50;
     final rightArmExtended = (rightWrist.x - rightElbow.x).abs() > 50;
 
-    // Only one arm should be extended at a time
     if (leftArmExtended != rightArmExtended) {
       if (!_poseMatched) {
         final base = 450 + Random().nextInt(250);
@@ -969,7 +937,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Check for hands on hips celebration pose
     final leftHandOnHip = _distance(leftWrist, leftHip) < 50;
     final rightHandOnHip = _distance(rightWrist, rightHip) < 50;
 
@@ -999,10 +966,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       _noPoseDetectedCount = 0;
     });
 
-    // Update star rating for the whole game
     _updateStarRating();
-
-    // Trigger score animation
     _triggerScoreAnimation();
 
     Timer(const Duration(milliseconds: 800), () {
@@ -1056,7 +1020,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     _countdownTimer?.cancel();
     _countdown = 5;
 
-    // ✅ Start preparing the video while countdown is running
     if (_videoInitializationCompleter != null) {
       _videoInitializationCompleter!.future.then((_) {
         debugPrint("Video ready before game starts");
@@ -1071,7 +1034,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
           _countdown--;
         } else {
           _countdownTimer?.cancel();
-          _startGame(); // normal flow
+          _startGame();
         }
       });
     });
@@ -1080,7 +1043,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   Future<void> _startGame() async {
     MusicService().playGameMusic(danceId: widget.danceId);
 
-    // ✅ Wait until the video is initialized before trying to play
     if (_videoInitializationCompleter != null) {
       try {
         await _videoInitializationCompleter!.future;
@@ -1091,7 +1053,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
     }
 
-    await _playVideoSafely(); // ✅ guaranteed ready now
+    await _playVideoSafely();
 
     setState(() {
       _isGameStarted = true;
@@ -1147,7 +1109,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
         _showAlignmentGuide = true;
         _isPerfectlyAligned = false;
 
-        // Reset duration to original value
         _danceSteps[_currentStep]['duration'] = _danceSteps[_currentStep]['originalDuration'];
       });
 
@@ -1163,7 +1124,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       final result = await ApiService.updateUserXP(widget.userId, xpGained);
 
       if (result['status'] == 'success' && result['leveled_up'] == true) {
-        // Show level up notification after the game over dialog
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1182,29 +1142,25 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
   void _endGame() {
     _gameTimer?.cancel();
 
-    // Stop the game music and video
     MusicService().stopMusic();
     _videoController.pause();
 
     final maxPossibleScore = _danceSteps.length * 1000;
     final percentage = maxPossibleScore == 0 ? 0 : (_totalScore / maxPossibleScore * 100).round();
 
-    // Calculate XP based on performance
     int xpGained = 0;
     if (percentage >= 90) {
-      xpGained = 100; // Perfect score
+      xpGained = 100;
     } else if (percentage >= 70) {
-      xpGained = 75; // Very good
+      xpGained = 75;
     } else if (percentage >= 50) {
-      xpGained = 50; // Good
+      xpGained = 50;
     } else {
-      xpGained = 25; // Try again
+      xpGained = 25;
     }
 
-    // Add bonus for consecutive good poses
     xpGained += (_consecutiveGoodPoses ~/ 10) * 10;
 
-    // Navigate to result screen
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -1219,7 +1175,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       ),
     );
 
-    // Update user XP in background
     _updateUserXP(xpGained);
   }
 
@@ -1244,11 +1199,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       await _controller!.initialize().then((_) {
         if (!mounted) return;
 
-        // In portrait, previewSize is landscape (width>height), so swap.
         final previewSize = _controller!.value.previewSize!;
         _imageSize = Size(previewSize.height, previewSize.width);
 
-        // Start stream
         _controller!.startImageStream(_processCameraImage);
 
         setState(() => _isCameraInitialized = true);
@@ -1280,14 +1233,12 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final rightHip = pose.landmarks[PoseLandmarkType.rightHip];
     final nose = pose.landmarks[PoseLandmarkType.nose];
 
-    // Use more landmarks for better partial body detection
     final List<PoseLandmark?> keyLandmarks = [
       leftShoulder, rightShoulder, leftHip, rightHip, nose
     ];
 
     final int visibleLandmarks = keyLandmarks.where((lm) => lm != null).length;
 
-    // If we don't have enough landmarks, don't try to calculate alignment
     if (visibleLandmarks < 3) {
       setState(() {
         _alignmentFeedback = "Show more of your body";
@@ -1298,7 +1249,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       return;
     }
 
-    // Calculate center using available landmarks
     double centerX = 0;
     double centerY = 0;
     int count = 0;
@@ -1320,7 +1270,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     final alignX = (centerX - screenCenterX) / screenCenterX;
     final alignY = (centerY - screenCenterY) / screenCenterY;
 
-    // Calculate scale based on shoulder width if available, otherwise use hip width
     double scale = 1.0;
     if (leftShoulder != null && rightShoulder != null) {
       final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
@@ -1335,7 +1284,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     bool isAligned = false;
     String feedback = "";
 
-    // More lenient alignment thresholds
     if (alignX.abs() > 0.3) {
       feedback = alignX > 0 ? "Move left" : "Move right";
     } else if (alignY.abs() > 0.3) {
@@ -1429,7 +1377,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
           fn(smoothedPose);
         }
 
-
       } else {
         _customPaint = null;
         _noPoseDetectedCount++;
@@ -1469,7 +1416,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       }
       final bytes = allBytes.done().buffer.asUint8List();
 
-      // Typical for Android front camera in portrait.
       final rotation = _controller!.description.lensDirection == CameraLensDirection.front
           ? InputImageRotation.rotation270deg
           : InputImageRotation.rotation90deg;
@@ -1510,7 +1456,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
       if (_isVideoInitialized && _videoController.value.isInitialized) {
         _videoController.pause();
       }
-      // ❌ Don't dispose cached controllers, only dispose if not cached
       if (!_videoCache.containsValue(_videoController)) {
         _videoController.dispose();
       }
@@ -1522,7 +1467,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     super.dispose();
   }
 
-  // Add video listener to track state changes
   void _videoListener() {
     if (_videoController.value.hasError) {
       debugPrint("Video error: ${_videoController.value.errorDescription}");
@@ -1549,7 +1493,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     }
   }
 
-  // Widget to build star rating display
   Widget _buildStarRating() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1600,11 +1543,9 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     );
   }
 
-  // Helper function to determine star colors based on position and earned status
   Color _getStarColor(int index, int stars) {
-    if (index >= stars) return Colors.grey; // Not earned
+    if (index >= stars) return Colors.grey;
 
-    // Gradient of colors from first to last star
     final List<Color> starColors = [
       Colors.amber,
       Colors.amber,
@@ -1619,7 +1560,6 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
     return starColors[index];
   }
 
-  // Widget to build score animation
   Widget _buildScoreAnimation() {
     if (_scoreAnimationController == null ||
         _scoreScaleAnimation == null ||
@@ -1807,7 +1747,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // ✅ Score UI (Top-left)
+                  // Score UI (Top-left)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1835,7 +1775,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                     ],
                   ),
 
-                  // ✅ Dance name + Room + Video (Top-right)
+                  // Dance name + Room + Video (Top-right)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -1871,7 +1811,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
                       ),
                       const SizedBox(height: 10),
 
-                      // ✅ Video below room info
+                      // Video below room info
                       if (_showVideo)
                         Container(
                           width: 120,
@@ -1902,7 +1842,7 @@ class _GameplayScreenState extends State<GameplayScreen> with WidgetsBindingObse
             ),
           ),
 
-          // Star Rating Display (Top Center) - Now shows overall game rating
+          // Star Rating Display (Top Center)
           if (_showStarRating && _isGameStarted)
             Positioned(
               top: 100,

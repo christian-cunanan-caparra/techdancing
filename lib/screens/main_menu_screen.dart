@@ -7,19 +7,19 @@ import 'dart:math';
 import 'package:techdancing/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:techdancing/screens/pactice_mode_screen.dart';
-import 'package:techdancing/screens/profile_Screen.dart';
+import 'package:techdancing/screens/profile_screen.dart';
 import 'create_dance_screen.dart';
 import 'custom_dance_selection_screen.dart';
 import 'endless_game_screen.dart';
 import 'multiplayer_screen.dart';
 import 'leaderboard_screen.dart';
 import '../services/music_service.dart';
+import 'pactice_mode_screen.dart';
 import 'quickplay_screen.dart';
 import '../services/api_service.dart';
 
 class MainMenuScreen extends StatefulWidget {
-  final Map user;
+  final Map<String, dynamic> user;
 
   const MainMenuScreen({super.key, required this.user});
 
@@ -88,7 +88,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       if (status == AnimationStatus.completed) {
         _checkConnectivity();
         _startAutoRefresh();
-        _loadAnnouncements(); // Use the new loading method
+        _loadAnnouncements();
       }
     });
 
@@ -188,7 +188,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       // Restart carousel with updated data
       _startCarouselAutoScroll();
     } catch (e) {
-
       // Don't show error if we have cached data to display
       if (!_hasCachedAnnouncements || _cachedAnnouncements.isEmpty) {
         setState(() {
@@ -343,9 +342,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   Future<void> _initializeMusic() async {
     await _musicService.initialize();
     _musicService.playMenuMusic(screenName: 'menu');
-    setState(() {
-
-    });
   }
 
   // Fetch updated user stats from the server
@@ -400,7 +396,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         }
       }
     } catch (e) {
-      print('Error fetching user stats: $e');
+      debugPrint('Error fetching user stats: $e');
     }
   }
 
@@ -479,7 +475,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             QuickPlayScreen(user: _currentUser),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
-          const end = (Offset.zero);
+          const end = Offset.zero;
           const curve = Curves.easeInOut;
 
           var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
@@ -537,7 +533,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             MultiplayerScreen(user: _currentUser),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(1.0, 0.0);
-          const end = (Offset.zero);
+          const end = Offset.zero;
           const curve = Curves.easeInOut;
 
           var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
@@ -561,7 +557,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ProfileScreen(user: _currentUser),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
-          const end = (Offset.zero);
+          const end = Offset.zero;
           const curve = Curves.easeInOut;
 
           var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
@@ -574,7 +570,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     );
   }
 
-  void _startEndlessMode(BuildContext context) {
+  void _startEndlessMode(BuildContext context, {bool useCustomPoses = false}) {
     if (!isOnline) {
       _showOfflineWarning();
       return;
@@ -584,7 +580,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            EndlessGameScreen(userId: _currentUser['id'].toString()),
+            EndlessGameScreen(
+              userId: _currentUser['id'].toString(),
+              useCustomPoses: useCustomPoses,
+            ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
           const end = Offset.zero;
@@ -616,7 +615,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             LeaderboardScreen(userId: _currentUser['id'].toString()),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(0.0, 1.0);
-          const end = (Offset.zero);
+          const end = Offset.zero;
           const curve = Curves.easeInOut;
 
           var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
@@ -631,8 +630,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       _fetchUserStats();
     });
   }
-
-
 
   // Build featured dance card
   Widget _buildFeaturedDanceCard(int index) {
@@ -781,13 +778,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Row(
-                        children: List.generate(dance['rating'] as int, (index) => const Icon(
-                          Icons.star,
-                          color: Colors.amber,
-                          size: 12,
-                        )),
-                      ),
+                      ...List.generate(dance['rating'] as int, (index) => const Icon(
+                        Icons.star,
+                        color: Colors.amber,
+                        size: 12,
+                      )),
                     ],
                   ),
 
@@ -928,7 +923,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                   if (!isNoAnnouncement)
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.start, // Changed this too
+                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         const Icon(
                           Icons.calendar_today,
@@ -1099,7 +1094,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                           fontWeight: FontWeight.w400,
                         ),
                         children: [
-
                           TextSpan(
                             text: isOnline
                                 ? 'Start exploring and create your perfect playlist.'
@@ -1204,9 +1198,6 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ),
           ),
 
-          // Online/Offline indicator
-
-
           Column(
             children: [
               const SizedBox(height: 40),
@@ -1262,7 +1253,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 30),
 
-                      // In the build method, replace the entire SizedBox containing the PageView.builder:
+                      // Announcements Carousel
                       SizedBox(
                         height: MediaQuery.of(context).size.height * 0.43,
                         child: PageView.builder(
@@ -1341,12 +1332,9 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                           ),
                         ),
 
-
-
-
                       const SizedBox(height: 20),
 
-                      // In the build method, replace the Container containing "GAME MODE" section:
+                      // Game Modes Section
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
@@ -1368,13 +1356,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                               children: [
                                 Expanded(
                                   child: GestureDetector(
-                                    onTap: () {
-                                      if (!isOnline) {
-                                        _showOfflineWarning();
-                                        return;
-                                      }
-                                      _startQuickPlay(context);
-                                    },
+                                    onTap: () => _startQuickPlay(context),
                                     child: Container(
                                       height: 120,
                                       decoration: BoxDecoration(
@@ -1441,13 +1423,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                                 Expanded(
                                   child: GestureDetector(
-                                    onTap: () {
-                                      if (!isOnline) {
-                                        _showOfflineWarning();
-                                        return;
-                                      }
-                                      _startPracticeMode(context);
-                                    },
+                                    onTap: () => _startPracticeMode(context),
                                     child: Container(
                                       height: 120,
                                       decoration: BoxDecoration(
@@ -1519,8 +1495,57 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             Row(
                               children: [
                                 Expanded(
-                                  child: GestureDetector(
-                                    onTap: () => _startEndlessMode(context),
+                                  child:
+                                  // Replace the existing Endless Mode button with this expanded version
+                                  GestureDetector(
+                                    onTap: () {
+                                      showModalBottomSheet(
+                                        context: context,
+                                        backgroundColor: Colors.transparent,
+                                        builder: (context) => Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.9),
+                                            borderRadius: const BorderRadius.only(
+                                              topLeft: Radius.circular(20),
+                                              topRight: Radius.circular(20),
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.all(20),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Text(
+                                                "Select Endless Mode",
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 20),
+                                              ListTile(
+                                                leading: const Icon(Icons.shuffle, color: Colors.blue),
+                                                title: const Text("Normal Mode"),
+                                                subtitle: const Text("Random poses from the game"),
+                                                onTap: () {
+                                                  Navigator.pop(context);
+                                                  _startEndlessMode(context, useCustomPoses: false);
+                                                },
+                                              ),
+                                              ListTile(
+                                                leading: const Icon(Icons.star, color: Colors.purple),
+                                                title: const Text("Custom Mode"),
+                                                subtitle: const Text("Use your created poses"),
+                                                onTap: () {
+                                                  Navigator.pop(context);
+                                                  _startEndlessMode(context, useCustomPoses: true);
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
                                     child: Container(
                                       height: 120,
                                       decoration: BoxDecoration(
@@ -1569,7 +1594,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                                 ),
                                                 const Spacer(),
                                                 Text(
-                                                  "Test your limits",
+                                                  "Normal & Custom modes",
                                                   style: TextStyle(
                                                     color: Colors.white.withOpacity(0.8),
                                                     fontSize: 12,
@@ -1587,13 +1612,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                                 Expanded(
                                   child: GestureDetector(
-                                    onTap: () {
-                                      if (!isOnline) {
-                                        _showOfflineWarning();
-                                        return;
-                                      }
-                                      goToMultiplayer(context);
-                                    },
+                                    onTap: () => goToMultiplayer(context),
                                     child: Container(
                                       height: 120,
                                       decoration: BoxDecoration(
@@ -1663,13 +1682,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             // Third row: Create Dance (full width)
                             GestureDetector(
-                              onTap: () {
-                                if (!isOnline) {
-                                  _showOfflineWarning();
-                                  return;
-                                }
-                                _goToCreateDance(context);
-                              },
+                              onTap: () => _goToCreateDance(context),
                               child: Container(
                                 height: 80,
                                 decoration: BoxDecoration(
@@ -1722,94 +1735,91 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
 
+                            const SizedBox(height: 12),
 
-
-                      const SizedBox(height: 12),
-
-
-                      // Add this to your game modes in MainMenuScreen
-                      // Add this card to your game modes grid/layout
-                      GestureDetector(
-                        onTap: () {
-                          if (!isOnline) {
-                            _showOfflineWarning();
-                            return;
-                          }
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => CustomDanceSelectionScreen(user: _currentUser),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          height: 120,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF9C27B0), Color(0xFF673AB7)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: Opacity(
-                                  opacity: 0.1,
-                                  child: CustomPaint(
-                                    painter: _DancePatternPainter(),
+                            // My Dances Card
+                            GestureDetector(
+                              onTap: () {
+                                if (!isOnline) {
+                                  _showOfflineWarning();
+                                  return;
+                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => CustomDanceSelectionScreen(user: _currentUser),
                                   ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(
-                                      Icons.emoji_people,
-                                      color: Colors.white,
-                                      size: 24,
+                                );
+                              },
+                              child: Container(
+                                height: 120,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF9C27B0), Color(0xFF673AB7)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
                                     ),
-                                    const SizedBox(height: 8),
-                                    const Text(
-                                      "My Dances",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                                  ],
+                                ),
+                                child: Stack(
+                                  children: [
+                                    Positioned.fill(
+                                      child: Opacity(
+                                        opacity: 0.1,
+                                        child: CustomPaint(
+                                          painter: _DancePatternPainter(),
+                                        ),
                                       ),
                                     ),
-                                    const Spacer(),
-                                    Text(
-                                      "Play your creations",
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.8),
-                                        fontSize: 12,
+                                    Padding(
+                                      padding: const EdgeInsets.all(12.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.emoji_people,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            "My Dances",
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            "Play your creations",
+                                            style: TextStyle(
+                                              color: Colors.white.withOpacity(0.8),
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
 
                       const SizedBox(height: 20),
 
+                      // Featured Dances Section
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
@@ -1874,6 +1884,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
             ],
           ),
 
+          // Bottom Navigation
           Positioned(
             left: 0,
             right: 0,
@@ -2060,46 +2071,6 @@ class _DancePatternPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _CarouselGlowPainter extends CustomPainter {
-  final int index;
-  final double opacity;
-
-  _CarouselGlowPainter({required this.index, required this.opacity});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-
-    final List<Color> glowColors = [
-      const Color(0x30FFD700),
-      const Color(0x3000BFFF),
-      const Color(0x30FF4500),
-    ];
-
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [glowColors[index], Colors.transparent],
-        stops: const [0.0, 0.8],
-      ).createShader(Rect.fromCircle(
-        center: Offset(centerX, centerY),
-        radius: size.width * 0.4,
-      ))
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20);
-
-    canvas.drawCircle(
-      Offset(centerX, centerY),
-      size.width * 0.4,
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CarouselGlowPainter oldDelegate) {
-    return oldDelegate.index != index || oldDelegate.opacity != opacity;
-  }
 }
 
 class _BackgroundPainter extends CustomPainter {

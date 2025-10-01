@@ -342,7 +342,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
                     const Text("Duration: "),
                     DropdownButton<int>(
                       value: _currentStepDuration,
-                      items: [4, 8, 12, 16]
+                      items: [4, 5, 6, 8]
                           .map((duration) => DropdownMenuItem<int>(
                         value: duration,
                         child: Text("$duration beats"),

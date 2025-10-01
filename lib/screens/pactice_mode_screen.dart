@@ -1529,15 +1529,7 @@ class _PracticeGameplayScreenState extends State<PracticeGameplayScreen>
                       Container(
                         width: 200,
                         height: 300,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: _isPerfectlyAligned
-                                ? Colors.green.withOpacity(0.7)
-                                : Colors.orange.withOpacity(0.7),
-                            width: 3,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+
                         child: Center(
                           child: Text(
                             _alignmentFeedback,
