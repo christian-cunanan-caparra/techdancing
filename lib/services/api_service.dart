@@ -3,9 +3,128 @@ import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 
-//main server to hostinger
 class ApiService {
   static const String baseUrl = "https://admin-beatbreaker.site/flutter";
+
+  static Future<Map<String, dynamic>> sendForceLogoutCode(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/send_force_logout_code.php"),
+        body: jsonEncode({'email': email}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitGameScore(
+      String roomCode,
+      String userId,
+      int score
+      ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/submit_game_score.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'room_code': roomCode,
+          'user_id': userId,
+          'score': score,
+        }),
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> checkPlayerRoomStatus(
+      String roomCode,
+      String userId
+      ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/check_player_roomstatus.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'room_code': roomCode,
+          'user_id': userId,
+        }),
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> verifyForceLogoutCode(String email, String code) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/verify_force_logout_code.php"),
+        body: jsonEncode({
+          'email': email,
+          'code': code,
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+
+  static Future<Map<String, dynamic>> forceLogout(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/force_logout.php"),
+        body: jsonEncode({'email': email}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> forgotPassword(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/forgot_password.php"),
+        body: jsonEncode({'email': email}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> resetPassword(String email, String newPassword, String resetToken) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/reset_password.php"),
+        body: jsonEncode({
+          'email': email,
+          'new_password': newPassword,
+          'reset_token': resetToken
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
 
   static Future<List<dynamic>> getAnnouncements() async {
     try {
@@ -24,7 +143,6 @@ class ApiService {
     }
   }
 
-// login
   static Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await http.post(
       Uri.parse("$baseUrl/login.php"),
@@ -38,39 +156,151 @@ class ApiService {
     final result = jsonDecode(response.body);
     result['requires_verification'] = result['requires_verification'] ?? false;
     result['email'] = result['email'] ?? email;
+    result['already_logged_in'] = result['already_logged_in'] ?? false;
     return result;
   }
 
-
-  //leaderboard
-
-  static Future<List<dynamic>> getLeaderboard(String userId) async {
+  static Future<Map<String, dynamic>> getLeaderboard(String userId) async {
     try {
-      final response = await http.post(Uri.parse("$baseUrl/leaderboard.php"),
-        body: jsonEncode({'user_id': userId}), headers: {'Content-Type': 'application/json'},
+      final response = await http.post(
+        Uri.parse("$baseUrl/leaderboard.php"),
+        body: jsonEncode({'user_id': userId}),
+        headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
+        final dynamic decoded = jsonDecode(response.body);
+        debugPrint('Leaderboard API response type: ${decoded.runtimeType}');
+        debugPrint('Leaderboard API response: $decoded');
 
-        if (decoded is List) {
-          return decoded;
-        } else if (decoded is Map && decoded.containsKey('error')) {
-          throw Exception(decoded['error']);
-        } else {
+        if (decoded is Map) {
+          final Map<String, dynamic> result = {};
+          decoded.forEach((key, value) {
+            result[key.toString()] = value;
+          });
 
-          return [];
+          if (!result.containsKey('leaderboard') || result['leaderboard'] is! List) {
+            result['leaderboard'] = [];
+          }
+          if (!result.containsKey('season_info') || result['season_info'] is! Map) {
+            result['season_info'] = {};
+          }
+          if (!result.containsKey('previous_season')) {
+            result['previous_season'] = null;
+          }
+
+          return result;
+        }
+        else if (decoded is List) {
+
+          return {
+            'leaderboard': decoded,
+            'season_info': {
+              'season_number': 1,
+              'season_name': 'Season 1',
+              'days_until_end': 245,
+              'is_active': true
+            },
+            'previous_season': null
+          };
+        }
+        else if (decoded is bool) {
+
+          debugPrint('Received boolean response: $decoded');
+          return {
+            'leaderboard': [],
+            'season_info': {
+              'season_number': 1,
+              'season_name': 'Season 1',
+              'days_until_end': 245,
+              'is_active': true
+            },
+            'previous_season': null
+          };
+        }
+        else if (decoded == null) {
+
+          debugPrint('Received null response');
+          return {
+            'leaderboard': [],
+            'season_info': {
+              'season_number': 1,
+              'season_name': 'Season 1',
+              'days_until_end': 245,
+              'is_active': true
+            },
+            'previous_season': null
+          };
+        }
+        else {
+
+          debugPrint('Unexpected response type: ${decoded.runtimeType}');
+          return {
+            'leaderboard': [],
+            'season_info': {
+              'season_number': 1,
+              'season_name': 'Season 1',
+              'days_until_end': 245,
+              'is_active': true
+            },
+            'previous_season': null
+          };
         }
       } else {
+        debugPrint('Leaderboard API error: ${response.statusCode} - ${response.body}');
         throw Exception('Failed to load leaderboard. Status code: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Leaderboard error: $e');
-      return [];
+      rethrow;
     }
   }
 
-  //api about user xp updates or level
+  static Future<void> endCurrentSeason() async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/leaderboard.php"),
+        body: jsonEncode({'action': 'end_season'}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        if (result['status'] == 'success') {
+          debugPrint('Season ended successfully');
+        } else {
+          throw Exception(result['message'] ?? 'Failed to end season');
+        }
+      } else {
+        throw Exception('Failed to end season. Status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('End season error: $e');
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>> getUserPreviousSeason(String userId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/user/$userId/previous-season'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        debugPrint('Previous season API raw response: $data');
+        return data;
+      } else {
+        debugPrint('Previous season API error: ${response.statusCode}');
+        debugPrint('Response body: ${response.body}');
+        throw Exception('Failed to load previous season data. Status: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Previous season network error: $e');
+      throw Exception('Network error: $e');
+    }
+  }
 
   static Future<Map<String, dynamic>> updateUserXP(String userId, int xpGained) async {
     final response = await http.post(
@@ -80,14 +310,11 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-//is all bout to sa users status or data
-
   static Future<Map<String, dynamic>> getUserStats(String userId) async {
     try {
       final response = await http.post(Uri.parse("$baseUrl/get_user_stats.php"),
         body: jsonEncode({'user_id': userId}), headers: {'Content-Type': 'application/json'},
       );
-
       return jsonDecode(response.body);
     } catch (e) {
       debugPrint("Error getting user stats: $e");
@@ -95,7 +322,6 @@ class ApiService {
     }
   }
 
-  //updating something about scores or level or what
   static Future<Map<String, dynamic>> updateGameStats(String userId, int score) async {
     final response = await http.post(Uri.parse('$baseUrl/update_game_stats.php'),
       headers: {'Content-Type': 'application/json'}, body: jsonEncode({'user_id': userId, 'score': score}),
@@ -103,7 +329,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-  //quickplay match random plays
   static Future<Map<String, dynamic>> quickPlayMatch(String userId) async {
     try {
       final response = await http.post(Uri.parse('$baseUrl/quickplay_match.php'),
@@ -130,7 +355,30 @@ class ApiService {
     }
   }
 
-  //cancel a room for quick play
+
+  static Future<Map<String, dynamic>> checkRoomStatusWithUser(String roomCode, String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/check_room_status.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'room_code': roomCode, 'user_id': userId}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Server error: ${response.statusCode}'};
+      }
+    } on TimeoutException {
+      return {'status': 'error', 'message': 'Request timeout'};
+    } on http.ClientException catch (e) {
+      return {'status': 'error', 'message': 'Network error: ${e.message}'};
+    } catch (e) {
+      return {'status': 'error', 'message': 'Unexpected error: ${e.toString()}'};
+    }
+  }
+
+
 
   static Future<Map<String, dynamic>> cancelQuickPlay(String userId) async {
     try {
@@ -148,15 +396,12 @@ class ApiService {
     }
   }
 
-  // register
   static Future<Map<String, dynamic>> register(String name, String email, String password) async {
     final response = await http.post(Uri.parse("$baseUrl/register.php"),
       body: jsonEncode({'name': name, 'email': email, 'password': password}), headers: {'Content-Type': 'application/json'},
     );
     return jsonDecode(response.body);
   }
-
-  //veryfying account
 
   static Future<Map<String, dynamic>> verifyAccount(String email, String verificationCode) async {
     final response = await http.post(Uri.parse("$baseUrl/verify_account.php"),
@@ -167,7 +412,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-  //resend code
   static Future<Map<String, dynamic>> resendVerification(String email) async {
     final response = await http.post(
       Uri.parse("$baseUrl/resend_verification.php"),
@@ -177,7 +421,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-  // create a room
   static Future<Map<String, dynamic>> createRoom(String playerId) async {
     final response = await http.post(Uri.parse("$baseUrl/create_room.php"),
       body: jsonEncode({'player1_id': playerId}), headers: {'Content-Type': 'application/json'},
@@ -185,7 +428,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
- //its all about joining a room with your friend
   static Future<Map<String, dynamic>> joinRoom(String roomCode, String playerId) async {
     final response = await http.post(Uri.parse("$baseUrl/join_room.php"),
       body: jsonEncode({'room_code': roomCode, 'player2_id': playerId}), headers: {'Content-Type': 'application/json'},
@@ -193,8 +435,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-
-  // status of room if full or what
   static Future<Map<String, dynamic>> checkRoomStatus(String roomCode) async {
     try {
       final response = await http.post(Uri.parse('$baseUrl/check_room_status.php'),
@@ -211,7 +451,6 @@ class ApiService {
     }
   }
 
-//a select dance
   static Future<Map<String, dynamic>> selectDance(String roomCode, int danceId) async {
     final response = await http.post(Uri.parse("$baseUrl/select_dance.php"),
       body: jsonEncode({'room_code': roomCode, 'dance_id': danceId}), headers: {'Content-Type': 'application/json'},
@@ -234,7 +473,6 @@ class ApiService {
     }
   }
 
-// is this a non function is a dynamic
   static Future<Map<String, dynamic>> saveRhythmScore(
       String userId,
       int score,
@@ -260,7 +498,6 @@ class ApiService {
     }
   }
 
-// if you log out remove the session on that device like you can login to others
   static Future<Map<String, dynamic>> logout(String userId, String sessionToken) async {
     final response = await http.post(Uri.parse("$baseUrl/logout.php"),
       body: jsonEncode({
@@ -272,9 +509,40 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
+  static Future<Map<String, dynamic>> checkLoginStatus(String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/check_login_status.php"),
+        body: jsonEncode({'user_id': userId}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        return {'status': 'error', 'message': 'Failed to check login status'};
+      }
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
 
 
-//is this a random selection  dance
+  static Future<Map<String, dynamic>> evictLog(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/evict_log.php"), // Changed filename
+        body: jsonEncode({'email': email}),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+
   static Future<Map<String, dynamic>> selectRandomDance(String roomCode) async {
     try {
       final response = await http.post(Uri.parse('$baseUrl/room/$roomCode/select-random-dance'), headers: {'Content-Type': 'application/json'},
@@ -289,11 +557,9 @@ class ApiService {
     }
   }
 
-  // Multiplayer dance selection
   static Future<Map<String, dynamic>> selectRandomDanceMulti(String roomCode) async {
     final response = await http.post(Uri.parse('$baseUrl/select-dance-multi'), body: {'room_code': roomCode},
     );
-
     return json.decode(response.body);
   }
 
@@ -304,12 +570,8 @@ class ApiService {
         'dance_id': danceId.toString(),
       },
     );
-
     return json.decode(response.body);
   }
-  
-//end
-
 
   static Future<Map<String, dynamic>> setStartTime(String roomCode) async {
     try {
@@ -405,7 +667,6 @@ class ApiService {
     }
   }
 
-  // In your ApiService class
   static Future<Map<String, dynamic>> createCustomDance(String userId, String name, String description) async {
     final response = await http.post(
       Uri.parse('$baseUrl/create_custom_dance.php'),
@@ -418,6 +679,23 @@ class ApiService {
     );
     return jsonDecode(response.body);
   }
+
+  static Future<Map<String, dynamic>> deleteCustomDance(String danceId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/delete_custom_dance.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'dance_id': danceId,
+        }),
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
 
   static Future<Map<String, dynamic>> addCustomStep(
       String danceId,
@@ -444,10 +722,6 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-
-
-  // Add these methods to your ApiService class
-
   static Future<Map<String, dynamic>> getCustomDances(String userId) async {
     try {
       final response = await http.post(
@@ -464,9 +738,6 @@ class ApiService {
       return {'status': 'error', 'message': e.toString()};
     }
   }
-
-
-
 
   static Future<Map<String, dynamic>> getCustomDanceSteps(String danceId) async {
     try {
@@ -486,8 +757,74 @@ class ApiService {
   }
 
 
+  static Future<Map<String, dynamic>> getMultiplayerResults(String roomCode, String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/multiplayer_results.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'room_code': roomCode,
+          'user_id': userId,
+        }),
+      );
 
-  // Get all available achievements
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> waitForOpponentScore(String roomCode, String userId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/wait_opponent_score.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'room_code': roomCode,
+          'user_id': userId,
+        }),
+      ).timeout(const Duration(seconds: 30));
+
+      return jsonDecode(response.body);
+    } on TimeoutException {
+      return {'status': 'timeout', 'message': 'Waiting for opponent timed out'};
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> submitMultiplayerGameScore(
+      String roomCode,
+      String userId,
+      int score,
+      int totalScore,
+      int percentage,
+      int xpGained,
+      List<int> stepScores,
+      List<Map<String, dynamic>> danceSteps,
+      ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/submit_game_score.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'room_code': roomCode,
+          'user_id': userId,
+          'score': score,
+          'total_score': totalScore,
+          'percentage': percentage,
+          'xp_gained': xpGained,
+          'step_scores': stepScores,
+          'dance_steps': danceSteps,
+        }),
+      );
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+
   static Future<Map<String, dynamic>> getAchievements() async {
     try {
       final response = await http.get(
@@ -506,7 +843,6 @@ class ApiService {
     }
   }
 
-// Get user's achievement progress
   static Future<Map<String, dynamic>> getUserAchievements(String userId) async {
     try {
       final response = await http.post(
@@ -526,9 +862,6 @@ class ApiService {
     }
   }
 
-
-  // Check and update user achievements
-// In your ApiService class, update the updateUserAchievements method
   static Future<Map<String, dynamic>> updateUserAchievements(String userId) async {
     try {
       final response = await http.post(
@@ -539,10 +872,7 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
-
-        // Add debug logging
         print('Achievement update result: $result');
-
         return result;
       } else {
         return {'status': 'error', 'message': 'Failed to update achievements'};

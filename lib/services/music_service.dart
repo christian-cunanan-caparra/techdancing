@@ -55,6 +55,12 @@ class MusicService {
         audioFile = 'audio/jumbo1.mp3';
       } else if (danceId == 2) {
         audioFile = 'audio/modelo.mp3';
+      } else if (danceId == 99) {
+        audioFile = 'audio/funk.mp3';
+      }else if (danceId == 3) {
+        audioFile = 'audio/salt.mp3';
+      }else if (danceId == 4) {
+        audioFile = 'audio/burning.mp3';
       } else {
         audioFile = 'audio/background_music.mp3';
       }

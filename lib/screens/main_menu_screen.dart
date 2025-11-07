@@ -17,6 +17,7 @@ import '../services/music_service.dart';
 import 'pactice_mode_screen.dart';
 import 'quickplay_screen.dart';
 import '../services/api_service.dart';
+import 'camera_screen.dart'; // ADD THIS IMPORT
 
 class MainMenuScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -67,6 +68,11 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   bool isOnline = true;
   late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
+  // Login status monitoring
+  Timer? _loginStatusTimer;
+  bool _isUserLoggedIn = true;
+  bool _showingLogoutDialog = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +95,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         _checkConnectivity();
         _startAutoRefresh();
         _loadAnnouncements();
+        _startLoginStatusMonitoring(); // Start monitoring login status
       }
     });
 
@@ -115,12 +122,181 @@ class _MainMenuScreenState extends State<MainMenuScreen>
         isOnline = result != ConnectivityResult.none;
       });
 
-      // If we just came back online, refresh data
+      // If we just came back online, refresh data and restart monitoring
       if (isOnline) {
         _fetchUserStats();
         _refreshAnnouncements();
+        _restartLoginStatusMonitoring();
       }
     });
+  }
+
+  // ADD CAMERA SCREEN NAVIGATION METHOD
+  void _goToCameraScreen(BuildContext context) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+        const CameraScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    ).then((_) {
+      _musicService.resumeMusic(screenName: 'menu');
+    });
+  }
+
+  // Start monitoring login status
+  void _startLoginStatusMonitoring() {
+    _loginStatusTimer?.cancel();
+    _loginStatusTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _checkLoginStatus();
+    });
+  }
+
+  // Restart monitoring when coming back online
+  void _restartLoginStatusMonitoring() {
+    _loginStatusTimer?.cancel();
+    _startLoginStatusMonitoring();
+  }
+
+  // Check if user is still logged in
+  Future<void> _checkLoginStatus() async {
+    if (!isOnline || _showingLogoutDialog) return;
+
+    try {
+      final response = await ApiService.getUserStats(_currentUser['id'].toString());
+
+      debugPrint('=== LOGIN STATUS CHECK ===');
+      debugPrint('Full response: ${jsonEncode(response)}');
+
+      if (response['status'] == 'success') {
+        final userData = response['user'];
+
+        // Debug all fields in user data
+        debugPrint('User data fields:');
+        userData.forEach((key, value) {
+          debugPrint('  $key: $value (type: ${value.runtimeType})');
+        });
+
+        // Check if is_logged_in exists
+        if (userData.containsKey('is_logged_in')) {
+          final isLoggedIn = userData['is_logged_in'] == 1 || userData['is_logged_in'] == true;
+
+          debugPrint('is_logged_in value: ${userData['is_logged_in']}');
+          debugPrint('isLoggedIn boolean: $isLoggedIn');
+
+          if (!isLoggedIn) {
+            debugPrint('🚨 AUTO LOGOUT TRIGGERED - User is logged out on server');
+            if (mounted) {
+              _handleAutoLogout();
+            }
+          } else {
+            debugPrint('✅ User is still logged in');
+          }
+        } else {
+          debugPrint('❌ is_logged_in field NOT FOUND in response');
+        }
+      } else {
+        debugPrint('❌ API Error: ${response['message']}');
+      }
+      debugPrint('=== END LOGIN CHECK ===');
+    } catch (e) {
+      debugPrint('❌ Network error checking login status: $e');
+    }
+  }
+
+  // Handle automatic logout
+  void _handleAutoLogout() async {
+    if (_showingLogoutDialog) return;
+
+    _showingLogoutDialog = true;
+
+    // Stop all timers
+    _loginStatusTimer?.cancel();
+    _autoRefreshTimer?.cancel();
+    _carouselTimer?.cancel();
+    _levelUpTimer?.cancel();
+
+    // Clear shared preferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('isLoggedIn');
+    await prefs.remove('user');
+    await prefs.remove('session_token');
+
+    // Show logout dialog
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1a1539),
+          title: const Text(
+            "Session Evicted",
+            style: TextStyle(color: Colors.white, fontSize: 20),
+          ),
+          content: const Text(
+            "Your session has been evicted by another device login. You have been automatically logged out.",
+            style: TextStyle(color: Colors.white70, fontSize: 16),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                      (route) => false,
+                );
+              },
+              child: const Text(
+                "OK",
+                style: TextStyle(color: Colors.pinkAccent),
+              ),
+            ),
+          ],
+        ),
+      ).then((_) {
+        _showingLogoutDialog = false;
+      });
+    }
+  }
+
+  // Manual logout method
+  Future<void> _manualLogout() async {
+    _loginStatusTimer?.cancel();
+    _autoRefreshTimer?.cancel();
+    _carouselTimer?.cancel();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionToken = prefs.getString('session_token');
+
+      if (isOnline && sessionToken != null) {
+        await ApiService.logout(_currentUser['id'].toString(), sessionToken);
+      }
+    } catch (e) {
+      debugPrint('Error during manual logout: $e');
+    } finally {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('isLoggedIn');
+      await prefs.remove('user');
+      await prefs.remove('session_token');
+
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/login',
+              (route) => false,
+        );
+      }
+    }
   }
 
   Future<void> _checkConnectivity() async {
@@ -270,6 +446,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
       if (isOnline) {
         _fetchUserStats();
         _refreshAnnouncements();
+        _restartLoginStatusMonitoring();
       }
     } else if (state == AppLifecycleState.paused) {
       _musicService.pauseMusic();
@@ -332,9 +509,10 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     _featuredDanceController.dispose();
     _scrollController.dispose();
     _carouselTimer?.cancel();
-    WidgetsBinding.instance.removeObserver(this);
+    _loginStatusTimer?.cancel();
     _autoRefreshTimer?.cancel();
     _levelUpTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription.cancel();
     super.dispose();
   }
@@ -1334,7 +1512,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                       const SizedBox(height: 20),
 
-                      // Game Modes Section
+                      // Game Modes Section - UPDATED WITH CAMERA AND REQUEST DANCE
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
@@ -1495,9 +1673,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                             Row(
                               children: [
                                 Expanded(
-                                  child:
-                                  // Replace the existing Endless Mode button with this expanded version
-                                  GestureDetector(
+                                  child: GestureDetector(
                                     onTap: () {
                                       showModalBottomSheet(
                                         context: context,
@@ -1511,7 +1687,8 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                             ),
                                           ),
                                           padding: const EdgeInsets.all(20),
-                                          child: Column(
+                                          child:
+                                          Column(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               const Text(
@@ -1680,60 +1857,142 @@ class _MainMenuScreenState extends State<MainMenuScreen>
 
                             const SizedBox(height: 12),
 
-                            // Third row: Create Dance (full width)
-                            GestureDetector(
-                              onTap: () => _goToCreateDance(context),
-                              child: Container(
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFFF40313), Color(0xFF2C56DF)],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Stack(
-                                  children: [
-                                    Positioned.fill(
-                                      child: Opacity(
-                                        opacity: 0.1,
-                                        child: CustomPaint(
-                                          painter: _DancePatternPainter(),
+                            // NEW ROW: Camera and Request Dance
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => _goToCameraScreen(context),
+                                    child: Container(
+                                      height: 120,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFF00BCD4), Color(0xFF0097A7)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
                                         ),
-                                      ),
-                                    ),
-                                    Center(
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.add,
-                                            color: Colors.white,
-                                            size: 24,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
                                           ),
-                                          const SizedBox(width: 8),
-                                          const Text(
-                                            "Request Dance and Steps",
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
+                                        ],
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: Opacity(
+                                              opacity: 0.1,
+                                              child: CustomPaint(
+                                                painter: _DancePatternPainter(),
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(12.0),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Icon(
+                                                  Icons.camera_alt,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  "Camera",
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  "Real-time pose detection",
+                                                  style: TextStyle(
+                                                    color: Colors.white.withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(width: 12),
+
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => _goToCreateDance(context),
+                                    child: Container(
+                                      height: 120,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: const LinearGradient(
+                                          colors: [Color(0xFFF40313), Color(0xFF2C56DF)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: Opacity(
+                                              opacity: 0.1,
+                                              child: CustomPaint(
+                                                painter: _DancePatternPainter(),
+                                              ),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(12.0),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Icon(
+                                                  Icons.add,
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  "Creat Step",
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                const Spacer(),
+                                                Text(
+                                                  "Create own steps in endless mode only",
+                                                  style: TextStyle(
+                                                    color: Colors.white.withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
 
                             const SizedBox(height: 12),
@@ -1791,7 +2050,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                           ),
                                           const SizedBox(height: 8),
                                           const Text(
-                                            "My Dances",
+                                            "Endless Steps",
                                             style: TextStyle(
                                               color: Colors.white,
                                               fontSize: 16,

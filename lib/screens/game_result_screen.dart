@@ -12,6 +12,9 @@ class GameResultScreen extends StatefulWidget {
   final List<int> stepScores;
   final List<Map<String, dynamic>> danceSteps;
   final String userId;
+  final String? roomCode;
+  final bool isMultiplayer;
+  final String? playerName;
 
   const GameResultScreen({
     super.key,
@@ -21,6 +24,9 @@ class GameResultScreen extends StatefulWidget {
     required this.stepScores,
     required this.danceSteps,
     required this.userId,
+    this.roomCode,
+    this.isMultiplayer = false,
+    this.playerName,
   });
 
   @override
@@ -32,6 +38,12 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
   bool _statsUpdated = false;
   bool _isOnline = true;
   late StreamSubscription<ConnectivityResult> _connectivitySubscription;
+
+  // Multiplayer state variables
+  Map<String, dynamic>? _multiplayerResults;
+  bool _waitingForOpponent = false;
+  bool _opponentSubmitted = false;
+  Timer? _multiplayerTimer;
 
   @override
   void initState() {
@@ -52,12 +64,81 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
     });
 
     _updateGameStats();
+
+    // If multiplayer, start checking for opponent results
+    if (widget.isMultiplayer && widget.roomCode != null) {
+      _startMultiplayerResultCheck();
+    }
   }
 
   @override
   void dispose() {
     _connectivitySubscription.cancel();
+    _multiplayerTimer?.cancel();
     super.dispose();
+  }
+
+  // Multiplayer result checking
+  void _startMultiplayerResultCheck() {
+    setState(() {
+      _waitingForOpponent = true;
+    });
+
+    // Submit score first
+    _submitMultiplayerScore().then((_) {
+      // Then start polling for opponent's result
+      _multiplayerTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+        final results = await ApiService.getMultiplayerResults(
+          widget.roomCode!,
+          widget.userId,
+        );
+
+        if (results['status'] == 'success') {
+          final bothSubmitted = results['both_players_submitted'] ?? false;
+
+          if (bothSubmitted) {
+            timer.cancel();
+            setState(() {
+              _multiplayerResults = results;
+              _waitingForOpponent = false;
+              _opponentSubmitted = true;
+            });
+          } else {
+            setState(() {
+              _opponentSubmitted = results['player1']['submitted'] && results['player2']['submitted'];
+            });
+          }
+        }
+      });
+
+      // Timeout after 30 seconds
+      Timer(const Duration(seconds: 30), () {
+        if (_waitingForOpponent) {
+          _multiplayerTimer?.cancel();
+          setState(() {
+            _waitingForOpponent = false;
+          });
+        }
+      });
+    });
+  }
+
+  // Submit multiplayer score
+  Future<void> _submitMultiplayerScore() async {
+    try {
+      await ApiService.submitMultiplayerGameScore(
+        widget.roomCode!,
+        widget.userId,
+        widget.totalScore,
+        widget.totalScore,
+        widget.percentage,
+        widget.xpGained,
+        widget.stepScores,
+        widget.danceSteps,
+      );
+    } catch (e) {
+      debugPrint("Error submitting multiplayer score: $e");
+    }
   }
 
   Future<void> _checkConnectivity() async {
@@ -159,6 +240,231 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
         ),
       );
     }
+  }
+
+  // Build multiplayer comparison section - SIMPLIFIED
+  Widget _buildMultiplayerComparison() {
+    if (!widget.isMultiplayer || _multiplayerResults == null) {
+      return const SizedBox();
+    }
+
+    final player1 = _multiplayerResults!['player1'];
+    final player2 = _multiplayerResults!['player2'];
+    final winnerId = _multiplayerResults!['winner_id'];
+    final isDraw = _multiplayerResults!['is_draw'] ?? false;
+
+    final isPlayer1 = player1['id'].toString() == widget.userId;
+    final currentPlayer = isPlayer1 ? player1 : player2;
+    final opponent = isPlayer1 ? player2 : player1;
+    final currentPlayerWon = winnerId != null && winnerId.toString() == widget.userId;
+
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+
+        // Multiplayer Result Header - BIG AND BOLD
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isDraw
+                  ? [Colors.amber.withOpacity(0.3), Colors.orange.withOpacity(0.3)]
+                  : currentPlayerWon
+                  ? [Colors.green.withOpacity(0.3), Colors.lightGreen.withOpacity(0.3)]
+                  : [Colors.red.withOpacity(0.3), Colors.deepOrange.withOpacity(0.3)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isDraw ? Colors.amber : currentPlayerWon ? Colors.green : Colors.red,
+              width: 3,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: (isDraw ? Colors.amber : currentPlayerWon ? Colors.green : Colors.red).withOpacity(0.5),
+                blurRadius: 15,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Text(
+                isDraw ? "IT'S A DRAW! 🤝" :
+                currentPlayerWon ? "VICTORY! 🏆" : "DEFEAT! 💔",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: isDraw ? Colors.amber : currentPlayerWon ? Colors.green : Colors.red,
+                  shadows: const [
+                    Shadow(
+                      blurRadius: 10.0,
+                      color: Colors.black,
+                      offset: Offset(0, 0),
+                    ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              if (isDraw)
+                Text(
+                  "Both players scored ${currentPlayer['score']} points!",
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              if (!isDraw && winnerId != null)
+                Text(
+                  "You ${currentPlayerWon ? 'won' : 'lost'} by ${(currentPlayer['score'] - opponent['score']).abs()} points!",
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Simple Score Comparison
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildSimplePlayerCard(
+              "YOU",
+              currentPlayer['score'],
+              currentPlayer['percentage'],
+              true,
+              currentPlayerWon && !isDraw,
+            ),
+            _buildSimplePlayerCard(
+              opponent['name'] ?? "OPPONENT",
+              opponent['score'],
+              opponent['percentage'],
+              false,
+              !currentPlayerWon && !isDraw && winnerId != null,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSimplePlayerCard(String name, int score, int percentage, bool isCurrentPlayer, bool isWinner) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isWinner
+                ? Colors.green.withOpacity(0.2)
+                : isCurrentPlayer
+                ? Colors.blue.withOpacity(0.2)
+                : Colors.grey.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isWinner ? Colors.green :
+              isCurrentPlayer ? Colors.blueAccent : Colors.grey,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                name,
+                style: TextStyle(
+                  color: isCurrentPlayer ? Colors.cyanAccent : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "$score",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "$percentage%",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                ),
+              ),
+              if (isWinner)
+                const Icon(
+                  Icons.emoji_events,
+                  color: Colors.amber,
+                  size: 24,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Build waiting for opponent section
+  Widget _buildWaitingForOpponent() {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.cyanAccent.withOpacity(0.7),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                children: [
+                  const CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Waiting for Opponent...",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _opponentSubmitted
+                        ? "Opponent finished! Finalizing results..."
+                        : "Your opponent is still playing...",
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -279,9 +585,9 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
-                    "Game Over",
-                    style: TextStyle(
+                  Text(
+                    widget.isMultiplayer ? "Multiplayer Results" : "Game Over",
+                    style: const TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -294,7 +600,7 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
                       ],
                     ),
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 20),
 
                   // Connection status message
                   if (!_isOnline && !_statsUpdated)
@@ -316,27 +622,29 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
                     ),
                   const SizedBox(height: 10),
 
-                  // 8-Star Rating Display
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(8, (index) {
-                      return Icon(
-                        index < stars ? Icons.star : Icons.star_border,
-                        color: _getStarColor(index, stars),
-                        size: 40,
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "$stars/8 Stars",
-                    style: const TextStyle(
-                      fontSize: 20,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+                  // 8-Star Rating Display (only for single player)
+                  if (!widget.isMultiplayer) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(8, (index) {
+                        return Icon(
+                          index < stars ? Icons.star : Icons.star_border,
+                          color: _getStarColor(index, stars),
+                          size: 40,
+                        );
+                      }),
                     ),
-                  ),
-                  const SizedBox(height: 15),
+                    const SizedBox(height: 10),
+                    Text(
+                      "$stars/8 Stars",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                  ],
 
                   // Score display with glassmorphic effect
                   ClipRRect(
@@ -391,128 +699,48 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
                   ),
                   const SizedBox(height: 15),
 
-                  // Result text with glassmorphic effect
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: resultColor.withOpacity(0.7),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Text(
-                          resultText,
-                          style: TextStyle(
-                            fontSize: 24,
-                            color: resultColor,
-                            fontWeight: FontWeight.bold,
-                            shadows: [
-                              Shadow(
-                                blurRadius: 10.0,
-                                color: resultColor.withOpacity(0.5),
-                                offset: const Offset(0, 0),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // Step scores with glassmorphic effect
-                  Expanded(
-                    child: ClipRRect(
+                  // Result text with glassmorphic effect (only for single player)
+                  if (!widget.isMultiplayer)
+                    ClipRRect(
                       borderRadius: BorderRadius.circular(16),
                       child: BackdropFilter(
                         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                         child: Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.cyanAccent.withOpacity(0.7),
+                              color: resultColor.withOpacity(0.7),
                               width: 1.5,
                             ),
                           ),
-                          child: Column(
-                            children: [
-                              const Text(
-                                "Step Scores:",
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
+                          child: Text(
+                            resultText,
+                            style: TextStyle(
+                              fontSize: 24,
+                              color: resultColor,
+                              fontWeight: FontWeight.bold,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10.0,
+                                  color: resultColor.withOpacity(0.5),
+                                  offset: const Offset(0, 0),
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 15),
-                              Expanded(
-                                child: ListView(
-                                  children: [
-                                    ...widget.danceSteps.asMap().entries.map((entry) {
-                                      final idx = entry.key;
-                                      final step = entry.value;
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 8),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(12),
-                                          child: BackdropFilter(
-                                            filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(0.03),
-                                                borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(
-                                                  color: Colors.white.withOpacity(0.1),
-                                                  width: 1,
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      step['name'],
-                                                      style: const TextStyle(
-                                                        fontSize: 16,
-                                                        color: Colors.white70,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    "${widget.stepScores[idx]} pts",
-                                                    style: const TextStyle(
-                                                      fontSize: 16,
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ],
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
+
+                  // Multiplayer sections
+                  if (widget.isMultiplayer) ...[
+                    if (_waitingForOpponent) _buildWaitingForOpponent(),
+                    if (_multiplayerResults != null) _buildMultiplayerComparison(),
+                  ],
+
+                  const Spacer(),
 
                   // OK button with glassmorphic effect
                   ClipRRect(
@@ -551,9 +779,9 @@ class _GameResultScreenState extends State<GameResultScreen> with SingleTickerPr
                             highlightColor: Colors.white.withOpacity(0.1),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                              child: const Text(
-                                "OK",
-                                style: TextStyle(
+                              child: Text(
+                                widget.isMultiplayer ? "FINISH" : "OK",
+                                style: const TextStyle(
                                   fontSize: 18,
                                   color: Colors.black,
                                   fontWeight: FontWeight.bold,

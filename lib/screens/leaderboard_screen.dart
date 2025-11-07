@@ -13,30 +13,76 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   List<dynamic> leaderboardData = [];
+  Map<String, dynamic> seasonInfo = {};
+  Map<String, dynamic>? previousSeasonRecord;
   bool isLoading = true;
   String? errorMessage;
   late ScrollController _scrollController;
 
-  // Cache for dancer titles to avoid recalculating
-  final Map<int, String> _dancerTitleCache = {};
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _fetchLeaderboard();
+  }
 
-  String getDancerTitle(dynamic level) {
-    final levelInt = getLevelAsInt(level);
-    return _dancerTitleCache.putIfAbsent(levelInt, () {
-      if (levelInt >= 1 && levelInt <= 9) return 'Beginner Dancer';
-      if (levelInt >= 10 && levelInt <= 19) return 'Rookie Groover';
-      if (levelInt >= 20 && levelInt <= 29) return 'Rhythm Explorer';
-      if (levelInt >= 30 && levelInt <= 39) return 'Step Master';
-      if (levelInt >= 40 && levelInt <= 49) return 'Beat Rider';
-      if (levelInt >= 50 && levelInt <= 59) return 'Groove Specialist';
-      if (levelInt >= 60 && levelInt <= 69) return 'Dance Performer';
-      if (levelInt >= 70 && levelInt <= 79) return 'Choreo Expert';
-      if (levelInt >= 80 && levelInt <= 89) return 'Freestyle Pro';
-      if (levelInt >= 90 && levelInt <= 94) return 'Dance Master';
-      if (levelInt >= 95 && levelInt <= 98) return 'Stage Icon';
-      if (levelInt == 99) return 'Legendary Dancer';
-      return 'Beginner Dancer';
-    });
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchLeaderboard() async {
+    try {
+      final data = await ApiService.getLeaderboard(widget.userId);
+      if (mounted) {
+        setState(() {
+          // Safe data extraction with type checking
+          final dynamic leaderboardDataRaw = data['leaderboard'];
+          final dynamic seasonInfoRaw = data['season_info'];
+          final dynamic previousSeasonRecordRaw = data['previous_season'];
+
+          // Ensure leaderboardData is a List
+          if (leaderboardDataRaw is List) {
+            leaderboardData = leaderboardDataRaw;
+          } else {
+            leaderboardData = [];
+          }
+
+          // Ensure seasonInfo is a Map<String, dynamic>
+          if (seasonInfoRaw is Map) {
+            try {
+              seasonInfo = seasonInfoRaw.cast<String, dynamic>();
+            } catch (e) {
+              seasonInfo = {};
+            }
+          } else {
+            seasonInfo = {};
+          }
+
+          // Handle previousSeasonRecord (can be null)
+          if (previousSeasonRecordRaw is Map) {
+            try {
+              previousSeasonRecord = previousSeasonRecordRaw.cast<String, dynamic>();
+            } catch (e) {
+              previousSeasonRecord = null;
+            }
+          } else {
+            previousSeasonRecord = null;
+          }
+
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          errorMessage = e.toString().replaceAll('Exception: ', '');
+          isLoading = false;
+        });
+      }
+      debugPrint('Leaderboard error: $e');
+    }
   }
 
   int getLevelAsInt(dynamic level) {
@@ -58,37 +104,62 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return false;
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _scrollController = ScrollController();
-    _fetchLeaderboard();
+  // Safe data extraction methods
+  String _safeParseString(dynamic value, {String defaultValue = ''}) {
+    if (value == null) return defaultValue;
+    if (value is String) return value;
+    return value.toString();
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
+  int _safeParseInt(dynamic value, {int defaultValue = 0}) {
+    if (value == null) return defaultValue;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? defaultValue;
+    if (value is double) return value.toInt();
+    return defaultValue;
   }
 
-  Future<void> _fetchLeaderboard() async {
-    try {
-      final data = await ApiService.getLeaderboard(widget.userId);
-      if (mounted) {
-        setState(() {
-          leaderboardData = data;
-          isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          errorMessage = e.toString().replaceAll('Exception: ', '');
-          isLoading = false;
-        });
-      }
-      debugPrint('Leaderboard error: $e');
+  // Safe player data extraction
+  Map<String, dynamic> _getSafePlayerData(dynamic player) {
+    if (player is! Map) {
+      return {
+        'name': 'Unknown Player',
+        'level': 1,
+        'rank_title': 'Beginner Dancer',
+        'is_current_user': false,
+      };
     }
+
+    try {
+      return {
+        'name': _safeParseString(player['name'], defaultValue: 'Unknown Player'),
+        'level': _safeParseInt(player['level'], defaultValue: 1),
+        'rank_title': _safeParseString(player['rank_title'], defaultValue: 'Beginner Dancer'),
+        'is_current_user': _parseIsCurrentUser(player['is_current_user']),
+      };
+    } catch (e) {
+      return {
+        'name': 'Unknown Player',
+        'level': 1,
+        'rank_title': 'Beginner Dancer',
+        'is_current_user': false,
+      };
+    }
+  }
+
+  // Convert Map<dynamic, dynamic> to Map<String, dynamic>
+  Map<String, dynamic> _convertToStringKeyMap(dynamic map) {
+    if (map is! Map) return {};
+
+    final Map<String, dynamic> result = {};
+    try {
+      map.forEach((key, value) {
+        result[key.toString()] = value;
+      });
+    } catch (e) {
+      debugPrint('Error converting map: $e');
+    }
+    return result;
   }
 
   Widget _buildMedalIcon(int rank) {
@@ -207,11 +278,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  Widget _buildPlayerPodium(Map<String, dynamic> player, int rank, double height) {
-    final isCurrentUser = _parseIsCurrentUser(player['is_current_user']);
-    final playerLevel = player['level'] ?? 1;
-    final levelInt = getLevelAsInt(playerLevel);
-    final playerName = player['name']?.toString() ?? 'Player';
+  Widget _buildPlayerPodium(dynamic player, int rank, double height) {
+    final safePlayer = _getSafePlayerData(player);
+    final isCurrentUser = safePlayer['is_current_user'] as bool;
+    final playerLevel = safePlayer['level'] as int;
+    final playerName = safePlayer['name'] as String;
+    final rankTitle = safePlayer['rank_title'] as String;
     final firstName = playerName.split(' ')[0];
 
     Color podiumColor;
@@ -323,7 +395,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Lvl $levelInt',
+                    'Lvl $playerLevel',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.9),
                       fontSize: 11,
@@ -331,7 +403,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    getDancerTitle(playerLevel),
+                    rankTitle,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
                       fontSize: 9,
@@ -350,7 +422,73 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  Widget _buildPreviousSeasonBadge() {
+    if (previousSeasonRecord == null) return const SizedBox();
+
+    final previousLevel = _safeParseInt(previousSeasonRecord?['final_level']);
+    final previousRank = _safeParseInt(previousSeasonRecord?['final_rank']);
+    final previousRankTitle = _safeParseString(previousSeasonRecord?['rank_title'], defaultValue: 'Unknown');
+    final seasonName = _safeParseString(previousSeasonRecord?['season_name'], defaultValue: 'Previous Season');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.purple.withOpacity(0.4),
+            Colors.blue.withOpacity(0.4),
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.purple.withOpacity(0.6), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history, color: Colors.yellow[200], size: 16),
+              const SizedBox(width: 8),
+              Text(
+                'Previous Season $seasonName',
+                style: TextStyle(
+                  color: Colors.yellow[200],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'You reached $previousRankTitle - Level $previousLevel',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 12,
+            ),
+          ),
+          if (previousRank > 0)
+            Text(
+              'Rank: #$previousRank',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSeasonEndBanner() {
+    final daysUntilEnd = _safeParseInt(seasonInfo['days_until_end'], defaultValue: 245);
+    final seasonNumber = _safeParseInt(seasonInfo['season_number'], defaultValue: 1);
+    final seasonName = _safeParseString(seasonInfo['season_name'], defaultValue: 'Season 1');
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -381,7 +519,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Season ends in 245 days',
+              'Season ends in $daysUntilEnd days',
               style: TextStyle(
                 color: Colors.yellow[200],
                 fontWeight: FontWeight.bold,
@@ -397,7 +535,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
-              'SEASON 1',
+              seasonName.toUpperCase(),
               style: TextStyle(
                 color: Colors.yellow[200],
                 fontSize: 10,
@@ -410,14 +548,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  Widget _buildPlayerListItem(Map<String, dynamic> player, int rank) {
-    final isCurrentUser = _parseIsCurrentUser(player['is_current_user']);
-    final playerLevel = player['level'] ?? 1;
-    final levelInt = getLevelAsInt(playerLevel);
-    final playerName = player['name'] ?? 'Unknown';
+  Widget _buildPlayerListItem(dynamic player, int rank) {
+    final safePlayer = _getSafePlayerData(player);
+    final isCurrentUser = safePlayer['is_current_user'] as bool;
+    final playerLevel = safePlayer['level'] as int;
+    final playerName = safePlayer['name'] as String;
+    final rankTitle = safePlayer['rank_title'] as String;
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), // Added horizontal margin
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         decoration: BoxDecoration(
@@ -479,7 +618,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                             Icon(Icons.star, color: Colors.yellow[600], size: 14),
                             const SizedBox(width: 4),
                             Text(
-                              'Level $levelInt',
+                              'Level $playerLevel',
                               style: TextStyle(
                                 color: isCurrentUser
                                     ? Colors.yellow[200]
@@ -490,7 +629,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                           ],
                         ),
                         Text(
-                          getDancerTitle(playerLevel),
+                          rankTitle,
                           style: TextStyle(
                             color: isCurrentUser
                                 ? Colors.yellow[200]
@@ -537,12 +676,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
-  void _navigateToProfile(Map<String, dynamic> player) {
+  void _navigateToProfile(dynamic player) {
+    if (player is! Map) return;
+
+    final Map<String, dynamic> safePlayer = _convertToStringKeyMap(player);
+
+    // Ensure we have basic player data
+    if (!safePlayer.containsKey('id') && !safePlayer.containsKey('user_id')) {
+      // Try to extract from existing data
+      if (safePlayer.containsKey('name')) {
+        safePlayer['id'] = safePlayer['user_id'] = _extractPlayerId(safePlayer);
+      }
+    }
+
     Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            PlayerProfileScreen(player: player),
+            PlayerProfileScreen(player: safePlayer),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(1.0, 0.0);
           const end = Offset.zero;
@@ -555,6 +706,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         },
       ),
     );
+  }
+
+  String _extractPlayerId(Map<String, dynamic> player) {
+    final possibleKeys = ['id', 'user_id', 'userId', 'userID'];
+    for (var key in possibleKeys) {
+      if (player.containsKey(key) && player[key] != null) {
+        return player[key].toString();
+      }
+    }
+    return '';
   }
 
   Widget _buildLoadingScreen() {
@@ -618,6 +779,35 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     );
   }
 
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.leaderboard_outlined, color: Colors.purple[300], size: 64),
+          const SizedBox(height: 16),
+          Text(
+            'No Players Yet',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Be the first to join the leaderboard!',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 14,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -658,6 +848,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             ? _buildLoadingScreen()
             : errorMessage != null
             ? _buildErrorScreen()
+            : leaderboardData.isEmpty
+            ? _buildEmptyState()
             : RefreshIndicator(
           backgroundColor: Colors.purple,
           color: Colors.white,
@@ -669,10 +861,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 child: Column(
                   children: [
                     _buildSeasonEndBanner(),
+                    if (previousSeasonRecord != null) _buildPreviousSeasonBadge(),
                     _buildTopThreePlayers(),
                     if (leaderboardData.length > 3) ...[
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16), // Added horizontal margin
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Text(
                           'OTHER DANCERS',
                           style: TextStyle(
@@ -689,8 +882,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 ),
               ),
               if (leaderboardData.length > 3)
-                SliverPadding( // Added SliverPadding for margin
-                  padding: const EdgeInsets.symmetric(horizontal: 16), // Horizontal margin
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                           (context, index) {

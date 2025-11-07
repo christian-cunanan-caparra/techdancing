@@ -34,6 +34,7 @@ class _SelectDanceScreenMultiplayerState extends State<SelectDanceScreenMultipla
   final List<Map<String, dynamic>> dances = const [
     {'id': 1, 'name': 'JUMBO HOTDOG', 'difficulty': 'Easy', 'duration': '2:30'},
     {'id': 2, 'name': 'MODELONG CHARING', 'difficulty': 'Medium', 'duration': '3:15'},
+    {'id': 3, 'name': 'SALT', 'difficulty': 'Medium', 'duration': '3:15'},
 
   ];
 

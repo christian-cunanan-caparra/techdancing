@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -15,8 +16,8 @@ class CreateDanceScreen extends StatefulWidget {
   State<CreateDanceScreen> createState() => _CreateDanceScreenState();
 }
 
-class _CreateDanceScreenState extends State<CreateDanceScreen> {
-  // Camera and Pose Detection
+class _CreateDanceScreenState extends State<CreateDanceScreen> with SingleTickerProviderStateMixin {
+
   CameraController? _controller;
   bool _isCameraInitialized = false;
   late PoseDetector _poseDetector;
@@ -35,7 +36,14 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
   List<Map<String, dynamic>> _steps = [];
   Pose? _currentPose;
 
-  // Text controllers for clearing fields
+  // UI State
+  bool _showFullScreenCamera = false;
+  bool _showCountdown = false;
+  int _countdownValue = 7;
+  late AnimationController _countdownController;
+  late Animation<double> _countdownAnimation;
+
+  // Text controllers
   final TextEditingController _stepNameController = TextEditingController();
   final TextEditingController _stepDescController = TextEditingController();
   final TextEditingController _stepLyricsController = TextEditingController();
@@ -45,6 +53,15 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
     super.initState();
     _initializeCamera();
     _poseDetector = PoseDetector(options: PoseDetectorOptions(model: PoseDetectionModel.accurate));
+
+    _countdownController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _countdownAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _countdownController, curve: Curves.easeOut),
+    );
   }
 
   Future<void> _initializeCamera() async {
@@ -57,7 +74,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
 
       _controller = CameraController(
         camera,
-        ResolutionPreset.low,
+        ResolutionPreset.medium,
         enableAudio: false,
       );
 
@@ -135,10 +152,8 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
     }
   }
 
-  // Convert pose landmarks to a JSON-serializable format
   Map<String, dynamic> _poseToJson(Pose pose) {
     final Map<String, dynamic> data = {};
-
     pose.landmarks.forEach((type, landmark) {
       data[type.name] = {
         'x': landmark.x,
@@ -147,8 +162,43 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
         'likelihood': landmark.likelihood,
       };
     });
-
     return data;
+  }
+
+  void _startCountdown() {
+    if (_currentStepName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter a step name")),
+      );
+      return;
+    }
+
+    setState(() {
+      _showFullScreenCamera = true;
+      _showCountdown = true;
+      _countdownValue = 7;
+    });
+
+    _countdownController.reset();
+    _countdownController.forward();
+
+    Future.delayed(const Duration(milliseconds: 600), () {
+      _nextCountdown();
+    });
+  }
+
+  void _nextCountdown() {
+    if (_countdownValue > 1) {
+      setState(() => _countdownValue--);
+      _countdownController.reset();
+      _countdownController.forward();
+      Future.delayed(const Duration(milliseconds: 600), _nextCountdown);
+    } else {
+      setState(() {
+        _showCountdown = false;
+      });
+      _captureStep();
+    }
   }
 
   void _captureStep() {
@@ -156,13 +206,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("No pose detected!")),
       );
-      return;
-    }
-
-    if (_currentStepName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a step name")),
-      );
+      setState(() => _showFullScreenCamera = false);
       return;
     }
 
@@ -183,6 +227,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
       _stepNameController.clear();
       _stepDescController.clear();
       _stepLyricsController.clear();
+      _showFullScreenCamera = false;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -206,7 +251,6 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
     }
 
     try {
-      // Create the dance
       final danceResult = await ApiService.createCustomDance(
           widget.userId,
           _danceName,
@@ -219,7 +263,6 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
 
       final danceId = danceResult['dance_id'];
 
-      // Add all steps
       for (final step in _steps) {
         final stepResult = await ApiService.addCustomStep(
           danceId.toString(),
@@ -228,7 +271,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
           step['description'],
           step['duration'],
           step['lyrics'],
-          step['pose_data'], // Pass as Map directly
+          step['pose_data'],
         );
 
         if (stepResult['status'] != 'success') {
@@ -248,8 +291,483 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
     }
   }
 
+  Widget _buildFullScreenCamera() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // Camera Preview
+          Positioned.fill(
+            child: _isCameraInitialized
+                ? Stack(
+              children: [
+                CameraPreview(_controller!),
+                if (_customPaint != null) _customPaint!,
+              ],
+            )
+                : Container(
+              color: Colors.black,
+              child: const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            ),
+          ),
+
+          // Countdown Overlay
+          if (_showCountdown)
+            Container(
+              color: Colors.black54,
+              child: Center(
+                child: AnimatedBuilder(
+                  animation: _countdownAnimation,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _countdownAnimation.value,
+                      child: Container(
+                        width: 200,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          color: Colors.pinkAccent.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.pinkAccent.withOpacity(0.5),
+                              blurRadius: 20,
+                              spreadRadius: 5,
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            _countdownValue.toString(),
+                            style: const TextStyle(
+                              fontSize: 80,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  blurRadius: 10,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+          // Header
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => setState(() => _showFullScreenCamera = false),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    "CAPTURE POSE",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      shadows: [
+                        Shadow(blurRadius: 5, color: Colors.black),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Instructions
+          if (!_showCountdown)
+            Positioned(
+              bottom: 100,
+              left: 0,
+              right: 0,
+              child: Column(
+                children: [
+                  Text(
+                    _currentStepName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      shadows: [
+                        Shadow(blurRadius: 5, color: Colors.black),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "Hold your pose steady",
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                      shadows: [
+                        Shadow(blurRadius: 3, color: Colors.black),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Capture Button
+          if (!_showCountdown)
+            Positioned(
+              bottom: 30,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: FloatingActionButton(
+                  onPressed: _captureStep,
+                  backgroundColor: Colors.pinkAccent,
+                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 30),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainScreen() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Create Custom Dance"),
+        backgroundColor: const Color(0xFF1A093B),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            onPressed: _saveDance,
+            tooltip: "Save Dance",
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF0D0B1E), Color(0xFF1A093B), Color(0xFF2D0A5C)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Column(
+          children: [
+            // Camera Preview Section - Fixed height
+            Container(
+              height: MediaQuery.of(context).size.height * 0.3, // 30% of screen
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.pinkAccent, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.pinkAccent.withOpacity(0.3),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Stack(
+                  children: [
+                    _isCameraInitialized
+                        ? Stack(
+                      children: [
+                        CameraPreview(_controller!),
+                        if (_customPaint != null) _customPaint!,
+                      ],
+                    )
+                        : Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                            SizedBox(width: 5),
+                            Text(
+                              "LIVE PREVIEW",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Dance Info and Steps Section - Scrollable
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Dance Info
+                      const Text(
+                        "DANCE INFORMATION",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildGlassTextField(
+                        controller: null,
+                        hintText: "Dance Name",
+                        onChanged: (value) => setState(() => _danceName = value),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildGlassTextField(
+                        controller: null,
+                        hintText: "Dance Description",
+                        onChanged: (value) => setState(() => _danceDescription = value),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Current Step
+                      const Text(
+                        "CURRENT STEP",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildGlassTextField(
+                        controller: _stepNameController,
+                        hintText: "Step Name",
+                        onChanged: (value) => setState(() => _currentStepName = value),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildGlassTextField(
+                        controller: _stepDescController,
+                        hintText: "Step Description",
+                        onChanged: (value) => setState(() => _currentStepDescription = value),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildGlassTextField(
+                        controller: _stepLyricsController,
+                        hintText: "Lyrics (optional)",
+                        onChanged: (value) => setState(() => _currentStepLyrics = value),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Duration and Capture Button
+                      Row(
+                        children: [
+                          const Text(
+                            "Duration: ",
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.pinkAccent.withOpacity(0.5)),
+                            ),
+                            child: DropdownButton<int>(
+                              value: _currentStepDuration,
+                              dropdownColor: const Color(0xFF1A093B),
+                              style: const TextStyle(color: Colors.white),
+                              underline: const SizedBox(),
+                              items: [4, 5, 6, 8]
+                                  .map((duration) => DropdownMenuItem<int>(
+                                value: duration,
+                                child: Text("$duration beats"),
+                              ))
+                                  .toList(),
+                              onChanged: (value) => setState(() => _currentStepDuration = value!),
+                            ),
+                          ),
+                          const Spacer(),
+                          ElevatedButton(
+                            onPressed: _startCountdown,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.pinkAccent,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              elevation: 5,
+                              shadowColor: Colors.pinkAccent.withOpacity(0.5),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.camera_alt),
+                                SizedBox(width: 8),
+                                Text(
+                                  "CAPTURE",
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Steps List
+                      if (_steps.isNotEmpty) ...[
+                        const Text(
+                          "CAPTURED STEPS",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          height: 150, // Fixed height for steps list
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                          ),
+                          child: ListView.builder(
+                            itemCount: _steps.length,
+                            itemBuilder: (context, index) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.pinkAccent,
+                                  child: Text(
+                                    "${index + 1}",
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                title: Text(
+                                  _steps[index]['name'],
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                subtitle: Text(
+                                  _steps[index]['description'],
+                                  style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                  onPressed: () {
+                                    setState(() => _steps.removeAt(index));
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20), // Extra space at bottom
+                      ] else ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(color: Colors.white.withOpacity(0.1)),
+                          ),
+                          child: const Center(
+                            child: Text(
+                              "No steps captured yet\nTap 'CAPTURE STEP' to add your first pose",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGlassTextField({
+    required TextEditingController? controller,
+    required String hintText,
+    required ValueChanged<String> onChanged,
+  }) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(15),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.white.withOpacity(0.2)),
+          ),
+          child: TextField(
+            controller: controller,
+            onChanged: onChanged,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: hintText,
+              hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _countdownController.dispose();
     _controller?.dispose();
     _poseDetector.close();
     _stepNameController.dispose();
@@ -260,130 +778,7 @@ class _CreateDanceScreenState extends State<CreateDanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Create Custom Dance"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _saveDance,
-          ),
-        ],
-      ),
-      body: _isCameraInitialized
-          ? Column(
-        children: [
-          // Camera Preview
-          Expanded(
-            flex: 3,
-            child: Stack(
-              children: [
-                CameraPreview(_controller!),
-                if (_customPaint != null) _customPaint!,
-              ],
-            ),
-          ),
-
-          // Dance Info
-          Expanded(
-            flex: 2,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Dance Name",
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (value) => setState(() => _danceName = value),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Dance Description",
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (value) => setState(() => _danceDescription = value),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  "Current Step",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Step Name",
-                    border: OutlineInputBorder(),
-                  ),
-                  controller: _stepNameController,
-                  onChanged: (value) => setState(() => _currentStepName = value),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Step Description",
-                    border: OutlineInputBorder(),
-                  ),
-                  controller: _stepDescController,
-                  onChanged: (value) => setState(() => _currentStepDescription = value),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: "Lyrics (optional)",
-                    border: OutlineInputBorder(),
-                  ),
-                  controller: _stepLyricsController,
-                  onChanged: (value) => setState(() => _currentStepLyrics = value),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Text("Duration: "),
-                    DropdownButton<int>(
-                      value: _currentStepDuration,
-                      items: [4, 5, 6, 8]
-                          .map((duration) => DropdownMenuItem<int>(
-                        value: duration,
-                        child: Text("$duration beats"),
-                      ))
-                          .toList(),
-                      onChanged: (value) => setState(() => _currentStepDuration = value!),
-                    ),
-                    const Spacer(),
-                    ElevatedButton(
-                      onPressed: _captureStep,
-                      child: const Text("Capture Step"),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // Steps List
-          if (_steps.isNotEmpty)
-            Expanded(
-              flex: 1,
-              child: ListView.builder(
-                itemCount: _steps.length,
-                itemBuilder: (context, index) => ListTile(
-                  leading: Text("${index + 1}"),
-                  title: Text(_steps[index]['name']),
-                  subtitle: Text(_steps[index]['description']),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: () {
-                      setState(() => _steps.removeAt(index));
-                    },
-                  ),
-                ),
-              ),
-            ),
-        ],
-      )
-          : const Center(child: CircularProgressIndicator()),
-    );
+    return _showFullScreenCamera ? _buildFullScreenCamera() : _buildMainScreen();
   }
 }
 
@@ -400,7 +795,7 @@ class PosePainter extends CustomPainter {
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.0
-      ..color = Colors.green;
+      ..color = Colors.cyanAccent;
 
     for (final pose in poses) {
       pose.landmarks.forEach((_, landmark) {

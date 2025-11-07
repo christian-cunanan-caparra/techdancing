@@ -17,16 +17,19 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
     with SingleTickerProviderStateMixin {
   final MusicService _musicService = MusicService();
   late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _fadeAnimation;
 
   bool _isSearching = false;
   String _statusMessage = "Finding opponent...";
   Timer? _searchTimer;
   Timer? _timeoutTimer;
+  Timer? _syncTimer;
   String? _roomCode;
-  int _secondsRemaining = 60;
+  int _secondsRemaining = 25;
   bool _matchFound = false;
+  int? _matchStartTime;
+  String? _opponentName;
+  int? _playerNumber;
+  bool _shouldNavigate = false;
 
   @override
   void initState() {
@@ -34,27 +37,11 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
 
-    _scaleAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.1), weight: 1),
-      TweenSequenceItem(tween: Tween<double>(begin: 1.1, end: 1.0), weight: 1),
-    ]).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    ));
-
-    _fadeAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween<double>(begin: 0.7, end: 1.0), weight: 1),
-      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 0.7), weight: 1),
-    ]).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    ));
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startMatchmaking();
+      _startRealTimeMatchmaking();
     });
   }
 
@@ -63,15 +50,19 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
     _controller.dispose();
     _searchTimer?.cancel();
     _timeoutTimer?.cancel();
+    _syncTimer?.cancel();
     super.dispose();
   }
 
-  void _startMatchmaking() async {
+  void _startRealTimeMatchmaking() async {
     setState(() {
       _isSearching = true;
       _statusMessage = "Finding opponent...";
-      _secondsRemaining = 60;
+      _secondsRemaining = 25;
       _matchFound = false;
+      _opponentName = null;
+      _playerNumber = null;
+      _shouldNavigate = false;
     });
 
     _startTimeoutTimer();
@@ -80,13 +71,19 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
       final result = await ApiService.quickPlayMatch(widget.user['id'].toString());
 
       if (result['status'] == 'success') {
-        _handleMatchFound(result['room_code']);
+        _handleBothPlayersMatch(
+          result['room_code'],
+          result['match_start_time'],
+          result['player_number'],
+        );
       } else if (result['status'] == 'waiting') {
         _roomCode = result['room_code'];
+        _playerNumber = result['player_number'];
+        _matchStartTime = result['match_start_time'];
         setState(() {
-          _statusMessage = "Waiting for opponent...\n$_secondsRemaining seconds remaining";
+          _statusMessage = "Waiting for opponent...\nRoom: $_roomCode";
         });
-        _startPollingForOpponent();
+        _startBothPlayersPolling();
       } else {
         _handleMatchmakingError(result['message'] ?? "Failed to find match");
       }
@@ -95,22 +92,54 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
     }
   }
 
-  void _handleMatchFound(String roomCode) {
+  void _handleBothPlayersMatch(String roomCode, int matchStartTime, int playerNumber) async {
     if (!mounted) return;
 
     _timeoutTimer?.cancel();
     _searchTimer?.cancel();
 
+    // Get opponent info
+    try {
+      final status = await ApiService.checkRoomStatusWithUser(roomCode, widget.user['id'].toString());
+      if (status['status'] == 'success' && status['room'] != null) {
+        final room = status['room'];
+        final opponentName = playerNumber == 1 ? room['player2_name'] : room['player1_name'];
+
+        setState(() {
+          _opponentName = opponentName ?? 'Opponent';
+          _playerNumber = playerNumber;
+          _statusMessage = "Matched with $_opponentName!";
+        });
+      }
+    } catch (e) {
+      print('Error fetching room details: $e');
+    }
+
     setState(() {
       _roomCode = roomCode;
       _matchFound = true;
-      _statusMessage = "Match found!";
+      _matchStartTime = matchStartTime;
     });
 
-    // Short delay before navigation to show success message
-    Timer(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        _navigateToDanceSelection();
+    _startBothPlayersSync();
+  }
+
+  void _startBothPlayersSync() {
+    _syncTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (!mounted) return;
+
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final timeUntilStart = _matchStartTime! - now;
+
+      if (timeUntilStart <= 0) {
+        timer.cancel();
+        _navigateBothPlayers();
+      } else {
+        setState(() {
+          _statusMessage = _opponentName != null
+              ? "Matched with $_opponentName!\nStarting in $timeUntilStart..."
+              : "Match found!\nStarting in $timeUntilStart...";
+        });
       }
     });
   }
@@ -120,6 +149,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
 
     _timeoutTimer?.cancel();
     _searchTimer?.cancel();
+    _syncTimer?.cancel();
 
     setState(() {
       _isSearching = false;
@@ -141,49 +171,56 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
         if (mounted) {
           setState(() {
             _isSearching = false;
-            _statusMessage = "No match found\nPlease try again later";
-          });
-        }
-      } else if (_isSearching && _roomCode != null) {
-        if (mounted) {
-          setState(() {
-            _statusMessage = "Waiting for opponent...\n$_secondsRemaining seconds remaining";
+            _statusMessage = "No match found\nTry again";
           });
         }
       }
     });
   }
 
-  void _startPollingForOpponent() {
-    _searchTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+  void _startBothPlayersPolling() {
+    _searchTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
       if (!mounted || _roomCode == null) {
         timer.cancel();
         return;
       }
 
       try {
-        final status = await ApiService.checkRoomStatus(_roomCode!);
+        final status = await ApiService.checkRoomStatusWithUser(_roomCode!, widget.user['id'].toString());
 
         if (status['status'] == 'success' && status['room'] != null) {
           final room = status['room'];
 
-          // Check if room is ready (both players present)
+          // Check if BOTH players are present
           if (room['player1_id'] != null && room['player2_id'] != null) {
             timer.cancel();
             _timeoutTimer?.cancel();
+
             if (mounted) {
-              _handleMatchFound(_roomCode!);
+              // Use the synchronized match_start_time from database
+              final matchStartTime = room['match_start_time'] ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 2;
+              final playerNumber = status['player_number'] ?? (_playerNumber ?? 1);
+
+              _handleBothPlayersMatch(_roomCode!, matchStartTime, playerNumber);
+            }
+          }
+
+          // Check if we should navigate immediately (for late joiners)
+          if (status['navigate_immediately'] == true) {
+            timer.cancel();
+            _timeoutTimer?.cancel();
+            if (mounted) {
+              _navigateBothPlayers();
             }
           }
         }
       } catch (e) {
         print('Polling error: $e');
-        // Don't stop polling on error, just try again next cycle
       }
     });
   }
 
-  void _navigateToDanceSelection() {
+  void _navigateBothPlayers() {
     if (!mounted || _roomCode == null) return;
 
     Navigator.pushReplacement(
@@ -206,7 +243,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
             child: child,
           );
         },
-        transitionDuration: const Duration(milliseconds: 500),
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
@@ -214,6 +251,7 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
   void _cancelSearch() async {
     _searchTimer?.cancel();
     _timeoutTimer?.cancel();
+    _syncTimer?.cancel();
 
     try {
       await ApiService.cancelQuickPlay(widget.user['id'].toString());
@@ -227,26 +265,47 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
   }
 
   void _tryAgain() {
-    _startMatchmaking();
+    _startRealTimeMatchmaking();
   }
 
   Widget _buildStatusIcon() {
     if (_matchFound) {
-      return const Icon(
-        Icons.check_circle,
-        size: 80,
-        color: Colors.greenAccent,
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          const Icon(
+            Icons.check_circle,
+            size: 80,
+            color: Colors.greenAccent,
+          ),
+          if (_matchStartTime != null)
+            FutureBuilder<int>(
+              future: _getCountdown(),
+              builder: (context, snapshot) {
+                if (snapshot.hasData && snapshot.data! > 0) {
+                  return Text(
+                    '${snapshot.data}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+        ],
       );
     } else if (_isSearching) {
-      return FadeTransition(
-        opacity: _fadeAnimation,
-        child: ScaleTransition(
-          scale: _scaleAnimation,
-          child: const Icon(
-            Icons.search,
-            size: 80,
-            color: Colors.cyanAccent,
-          ),
+      return ScaleTransition(
+        scale: Tween(begin: 0.9, end: 1.1).animate(
+            CurvedAnimation(parent: _controller, curve: Curves.easeInOut)
+        ),
+        child: const Icon(
+          Icons.search,
+          size: 80,
+          color: Colors.cyanAccent,
         ),
       );
     } else {
@@ -256,6 +315,12 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
         color: Colors.redAccent,
       );
     }
+  }
+
+  Future<int> _getCountdown() async {
+    if (_matchStartTime == null) return 0;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return _matchStartTime! - now;
   }
 
   Widget _buildActionButtons() {
@@ -277,53 +342,6 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
             fontSize: 16,
           ),
         ),
-      );
-    } else if (_statusMessage.contains("No match found")) {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: _tryAgain,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.cyanAccent.withOpacity(0.8),
-              padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-            child: const Text(
-              "TRY AGAIN",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          const SizedBox(width: 20),
-          ElevatedButton(
-            onPressed: _cancelSearch,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent.withOpacity(0.8),
-              padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-            child: const Text(
-              "BACK",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ],
-      );
-    } else if (_matchFound) {
-      return const CircularProgressIndicator(
-        valueColor: AlwaysStoppedAnimation<Color>(Colors.greenAccent),
       );
     } else {
       return ElevatedButton(
@@ -389,6 +407,31 @@ class _QuickPlayScreenState extends State<QuickPlayScreen>
                     style: const TextStyle(
                       color: Colors.pinkAccent,
                       fontSize: 16,
+                    ),
+                  ),
+
+                if (_opponentName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      "vs $_opponentName",
+                      style: const TextStyle(
+                        color: Colors.yellowAccent,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                if (_playerNumber != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Text(
+                      "Player $_playerNumber",
+                      style: const TextStyle(
+                        color: Colors.blueAccent,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
 

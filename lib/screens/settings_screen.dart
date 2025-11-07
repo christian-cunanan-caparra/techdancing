@@ -47,21 +47,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final userString = prefs.getString('user');
       final sessionToken = prefs.getString('session_token');
 
+      print('=== STARTING LOGOUT PROCESS ===');
+      print('User data: $userString');
+      print('Session token: $sessionToken');
+
       if (userString != null) {
         final userMap = jsonDecode(userString);
-        await ApiService.logout(userMap['id'].toString(), sessionToken ?? '');
+        final userId = userMap['id'].toString();
+
+        print('Calling logout API for user ID: $userId');
+
+        // Call the logout API
+        final logoutResult = await ApiService.logout(userId, sessionToken ?? '');
+        print('Logout API result: $logoutResult');
+
+        if (logoutResult['status'] == 'success') {
+          print('✅ Database logout successful');
+        } else {
+          print('❌ Database logout failed: ${logoutResult['message']}');
+        }
+      } else {
+        print('❌ No user data found in SharedPreferences');
       }
 
-      await prefs.clear();
+      // Clear local storage regardless
+      await prefs.setBool('is_logged_in', false);
+      await prefs.setInt('is_logged_in', 0);
+      await prefs.remove('user');
+      await prefs.remove('session_token');
+
+      print('✅ Local storage cleared');
+      print('=== LOGOUT PROCESS COMPLETED ===');
+
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
             (route) => false,
       );
     } catch (e) {
+      print('❌ Logout error: $e');
       // Even if API call fails, clear local data
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      await prefs.setBool('is_logged_in', false);
+      await prefs.setInt('is_logged_in', 0);
+      await prefs.remove('user');
+      await prefs.remove('session_token');
+
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),

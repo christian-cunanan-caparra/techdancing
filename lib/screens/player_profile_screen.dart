@@ -17,7 +17,8 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
   late Animation<double> _scaleAnimation;
   bool _isLoading = false;
   String _errorMessage = '';
-  bool _isPopping = false; // Added flag to track if we're popping
+  bool _isPopping = false;
+  Map<String, dynamic>? _previousSeasonRecord;
 
   @override
   void initState() {
@@ -50,7 +51,6 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
 
   // Helper function to get dancer title based on level
   String getDancerTitle(dynamic level) {
-    // Convert level to int if it's a string
     int levelInt;
     if (level is String) {
       levelInt = int.tryParse(level) ?? 1;
@@ -70,17 +70,7 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     if (levelInt >= 90 && levelInt <= 94) return 'Dance Master';
     if (levelInt >= 95 && levelInt <= 98) return 'Stage Icon';
     if (levelInt == 99) return 'Legendary Dancer';
-    return 'Beginner Dancer'; // default
-  }
-
-  // Helper function to safely get level as int
-  int getLevelAsInt(dynamic level) {
-    if (level is String) {
-      return int.tryParse(level) ?? 1;
-    } else if (level is int) {
-      return level;
-    }
-    return 1; // default
+    return 'Beginner Dancer';
   }
 
   // Safe parsing function to handle different data types
@@ -106,12 +96,48 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     return value.toString();
   }
 
-  Future<void> _loadPlayerStats() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+  Map<String, dynamic> _convertToStringKeyMap(dynamic map) {
+    if (map is! Map) return {};
 
+    final Map<String, dynamic> result = {};
+    try {
+      map.forEach((key, value) {
+        result[key.toString()] = value;
+      });
+    } catch (e) {
+      debugPrint('Error converting map: $e');
+    }
+    return result;
+  }
+
+  Future<void> _loadPreviousSeasonData() async {
+    try {
+      debugPrint('Loading previous season for player: ${_player['id']}');
+      final data = await ApiService.getLeaderboard(_player['id'].toString());
+
+      final previousSeasonRecord = data['previous_season'];
+      debugPrint('Previous season record from API: $previousSeasonRecord');
+
+      if (previousSeasonRecord != null && previousSeasonRecord is Map) {
+        setState(() {
+          _previousSeasonRecord = _convertToStringKeyMap(previousSeasonRecord);
+        });
+        debugPrint('Previous season loaded successfully for player');
+      } else {
+        debugPrint('No previous season record found for this player');
+        setState(() {
+          _previousSeasonRecord = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading previous season for player: $e');
+      setState(() {
+        _previousSeasonRecord = null;
+      });
+    }
+  }
+
+  Future<void> _loadPlayerBasicStats() async {
     try {
       final result = await ApiService.getUserStats(_player['id'].toString());
 
@@ -142,6 +168,25 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
       setState(() {
         _errorMessage = 'Network error: ${e.toString()}';
       });
+    }
+  }
+
+  Future<void> _loadPlayerStats() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      await Future.wait([
+        _loadPlayerBasicStats(),
+        _loadPreviousSeasonData(),
+      ]);
+    } catch (e) {
+      debugPrint('Error loading player data: $e');
+      setState(() {
+        _errorMessage = 'Failed to load player data';
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -155,15 +200,13 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     super.dispose();
   }
 
-  // Modified back button handler with reverse animation
   Future<void> _handleBackButton() async {
-    if (_isPopping) return; // Prevent multiple pops
+    if (_isPopping) return;
 
     setState(() {
       _isPopping = true;
     });
 
-    // Reverse the animation before popping
     await _animationController.reverse();
 
     if (mounted) {
@@ -171,149 +214,156 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    // Use safe parsing for all values
-    int level = _safeParseInt(_player['level'], defaultValue: 1);
-    int xp = _safeParseInt(_player['xp']);
-    int xpRequired = _safeParseInt(_player['xp_required'], defaultValue: 100);
-    double progress = _safeParseDouble(_player['progress']);
-    String name = _safeParseString(_player['name'], defaultValue: 'Player');
-    int gamesPlayed = _safeParseInt(_player['games_played']);
-    int highScore = _safeParseInt(_player['high_score']);
-    int totalScore = _safeParseInt(_player['total_score']);
-    String joinDate = _safeParseString(_player['created_at'], defaultValue: 'Unknown');
-
-    return PopScope(
-      canPop: false, // Disable default back button behavior
-      onPopInvoked: (didPop) {
-        if (!didPop) {
-          _handleBackButton();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0D0B1E),
-        body: SafeArea(
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Stack(
-                children: [
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Header with back button
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.arrow_back, color: Colors.white),
-                              onPressed: _handleBackButton, // Use the new handler
-                            ),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'Player Profile',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const Spacer(),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
-                              onPressed: () {
-                                _loadPlayerStats();
-                              },
-                              tooltip: 'Refresh Stats',
-                            ),
-                          ],
-                        ),
-
-                        // Error message
-                        if (_errorMessage.isNotEmpty)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.red),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error, color: Colors.red),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage,
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 18),
-                                  onPressed: () {
-                                    setState(() {
-                                      _errorMessage = '';
-                                    });
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        const SizedBox(height: 20),
-
-                        // Player Profile Card
-                        _buildProfileCard(name, joinDate, level, xp, xpRequired, progress),
-
-                        const SizedBox(height: 20),
-
-                        // Statistics Section
-                        _buildStatisticsCard(gamesPlayed, highScore, totalScore),
-
-                        const SizedBox(height: 20),
-
-                        // Achievements Section
-                        _buildAchievementsCard(),
-
-                        const SizedBox(height: 30),
-                      ],
-                    ),
-                  ),
-
-                  // Loading overlay
-                  if (_isLoading)
-                    Container(
-                      color: Colors.black.withOpacity(0.7),
-                      child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
-                            ),
-                            SizedBox(height: 20),
-                            Text(
-                              "Loading profile...",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+  Widget _buildPreviousSeasonCard() {
+    if (_previousSeasonRecord == null || _previousSeasonRecord!.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.grey.withOpacity(0.2),
+              Colors.grey.withOpacity(0.1),
+            ],
+            begin: Alignment.centerLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.grey.withOpacity(0.3),
+            width: 1,
           ),
         ),
+        child: Column(
+          children: [
+            Icon(Icons.history, color: Colors.grey[400], size: 32),
+            const SizedBox(height: 8),
+            Text(
+              'No Previous Season Data',
+              style: TextStyle(
+                color: Colors.grey[400],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'This player has no previous season records',
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Extract data using field names from your database
+    final previousLevel = _safeParseInt(_previousSeasonRecord?['final_level']);
+    final previousRank = _safeParseInt(_previousSeasonRecord?['final_rank']);
+    final previousRankTitle = _safeParseString(_previousSeasonRecord?['rank_title'], defaultValue: 'Beginner Dancer');
+    final seasonName = _safeParseString(_previousSeasonRecord?['season_name'], defaultValue: 'Previous Season');
+    final totalScore = _safeParseInt(_previousSeasonRecord?['final_total_score']);
+    final gamesPlayed = _safeParseInt(_previousSeasonRecord?['games_played']);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.purple.withOpacity(0.4),
+            Colors.blue.withOpacity(0.4),
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.purple.withOpacity(0.6), width: 1),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with season info
+          Row(
+            children: [
+              Icon(Icons.history, color: Colors.yellow[200], size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Previous Season: $seasonName',
+                  style: TextStyle(
+                    color: Colors.yellow[200],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Main achievement info
+          Text(
+            'Reached $previousRankTitle - Level $previousLevel',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Rank info
+          if (previousRank > 0)
+            Text(
+              'Rank: #$previousRank',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 13,
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          // Additional stats in a row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildPreviousStatItem('Total Score', totalScore.toString(), Icons.star),
+              _buildPreviousStatItem('Games', gamesPlayed.toString(), Icons.videogame_asset),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreviousStatItem(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white.withOpacity(0.8), size: 16),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.6),
+            fontSize: 10,
+          ),
+        ),
+      ],
     );
   }
 
@@ -489,7 +539,6 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
   }
 
   Widget _buildStatisticsCard(int gamesPlayed, int highScore, int totalScore) {
-    // Calculate average score
     double averageScore = gamesPlayed > 0 ? totalScore / gamesPlayed : 0;
 
     return Container(
@@ -575,7 +624,6 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
   }
 
   Widget _buildAchievementsCard() {
-    // Use safe parsing for achievement conditions
     int gamesPlayed = _safeParseInt(_player['games_played']);
     int level = _safeParseInt(_player['level']);
     int highScore = _safeParseInt(_player['high_score']);
@@ -709,6 +757,154 @@ class _PlayerProfileScreenState extends State<PlayerProfileScreen> with SingleTi
             },
           ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    int level = _safeParseInt(_player['level'], defaultValue: 1);
+    int xp = _safeParseInt(_player['xp']);
+    int xpRequired = _safeParseInt(_player['xp_required'], defaultValue: 100);
+    double progress = _safeParseDouble(_player['progress']);
+    String name = _safeParseString(_player['name'], defaultValue: 'Player');
+    int gamesPlayed = _safeParseInt(_player['games_played']);
+    int highScore = _safeParseInt(_player['high_score']);
+    int totalScore = _safeParseInt(_player['total_score']);
+    String joinDate = _safeParseString(_player['created_at'], defaultValue: 'Unknown');
+
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (!didPop) {
+          _handleBackButton();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0D0B1E),
+        body: SafeArea(
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: Stack(
+                children: [
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header with back button
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back, color: Colors.white),
+                              onPressed: _handleBackButton,
+                            ),
+                            const SizedBox(width: 10),
+                            const Text(
+                              'Player Profile',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              onPressed: () {
+                                _loadPlayerStats();
+                              },
+                              tooltip: 'Refresh Stats',
+                            ),
+                          ],
+                        ),
+
+                        // Error message
+                        if (_errorMessage.isNotEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.red),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.error, color: Colors.red),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _errorMessage,
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 18),
+                                  onPressed: () {
+                                    setState(() {
+                                      _errorMessage = '';
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        const SizedBox(height: 20),
+
+                        // Previous Season Card
+                        _buildPreviousSeasonCard(),
+
+                        // Player Profile Card
+                        _buildProfileCard(name, joinDate, level, xp, xpRequired, progress),
+
+                        const SizedBox(height: 20),
+
+                        // Statistics Section
+                        _buildStatisticsCard(gamesPlayed, highScore, totalScore),
+
+                        const SizedBox(height: 20),
+
+                        // Achievements Section
+                        _buildAchievementsCard(),
+
+                        const SizedBox(height: 30),
+                      ],
+                    ),
+                  ),
+
+                  // Loading overlay
+                  if (_isLoading)
+                    Container(
+                      color: Colors.black.withOpacity(0.7),
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.cyanAccent),
+                            ),
+                            SizedBox(height: 20),
+                            Text(
+                              "Loading profile...",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For Clipboard
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import 'main_menu_screen.dart';
 import 'register_screen.dart';
@@ -89,6 +91,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     });
   }
 
+  
+
   Future<void> _loadSavedCredentials() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -105,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<bool> loginUser() async { // Changed to return Future<bool>
+  Future<bool> loginUser() async {
     if (!_formKey.currentState!.validate()) return false;
 
     // Check if we're online before attempting login
@@ -144,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         return true;
       } else {
         // Handle already logged in case
-        if (result['message']?.contains('already logged in') == true) {
+        if (result['message']?.contains('already logged in') == true || result['already_logged_in'] == true) {
           _showAlreadyLoggedInDialog();
         }
         // Handle unverified account
@@ -189,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           style: TextStyle(color: Colors.white, fontSize: 20),
         ),
         content: const Text(
-          "Your account is already logged in on another device. Would you like to logout from the other device and login here?",
+          "Your account is already logged in on another device. For security, we need to send a verification code to your email to confirm this action.",
           style: TextStyle(color: Colors.white70, fontSize: 16),
         ),
         actions: [
@@ -198,34 +202,183 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             child: const Text("Cancel", style: TextStyle(color: Colors.cyanAccent)),
           ),
           TextButton(
-            onPressed: () => _forceLogoutAndLogin(),
-            child: const Text("Logout Other Device", style: TextStyle(color: Colors.pinkAccent)),
+            onPressed: () => _sendForceLogoutCode(),
+            child: const Text("Send Verification Code", style: TextStyle(color: Colors.pinkAccent)),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _forceLogoutAndLogin() async {
-    Navigator.pop(context); // Close dialog
+  Future<void> _sendForceLogoutCode() async {
+    Navigator.pop(context); // Close the initial dialog
 
     setState(() => isLoading = true);
 
     try {
-      // First, try to force logout by calling logout without session token
-      final prefs = await SharedPreferences.getInstance();
-      final userString = prefs.getString('user');
-      if (userString != null) {
-        final userMap = jsonDecode(userString);
-        await ApiService.logout(userMap['id'].toString(), '');
+      final result = await ApiService.sendForceLogoutCode(emailController.text.trim());
+
+      if (result['status'] == 'success') {
+        _showCodeVerificationDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Failed to send verification code'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
-
-      // Now you can use await since loginUser returns Future<bool>
-      await loginUser();
-
     } catch (e) {
-      // If force logout fails, try login anyway
-      await loginUser();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Failed to send verification code'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  void _showCodeVerificationDialog() {
+    final codeController = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1539),
+        title: const Text(
+          "Enter Verification Code",
+          style: TextStyle(color: Colors.white, fontSize: 20),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "We've sent a 6-digit verification code to your email. Please enter it below:",
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: codeController,
+              style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 2),
+              textAlign: TextAlign.center,
+              maxLength: 6,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                counterText: "",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => _sendForceLogoutCode(),
+                  child: const Text(
+                    "Resend Code",
+                    style: TextStyle(color: Colors.cyanAccent, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+          TextButton(
+            onPressed: () => _verifyForceLogoutCode(codeController.text.trim()),
+            child: const Text("Verify", style: TextStyle(color: Colors.pinkAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _verifyForceLogoutCode(String code) async {
+    if (code.isEmpty || code.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid 6-digit code'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      final result = await ApiService.verifyForceLogoutCode(
+        emailController.text.trim(),
+        code,
+      );
+
+      if (result['status'] == 'success') {
+        Navigator.pop(context); // Close code verification dialog
+        await _performForceLogout();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Invalid verification code'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to verify code'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _performForceLogout() async {
+    setState(() => isLoading = true);
+
+    try {
+      final result = await ApiService.forceLogout(emailController.text.trim());
+
+      if (result['status'] == 'success') {
+        // Now try to login again
+        await loginUser();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Failed to logout other device'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Failed to logout other device'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      setState(() => isLoading = false);
     }
   }
 
@@ -302,6 +455,142 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
   }
 
+  // Forgot password functionality with independent email field
+  void _showForgotPasswordDialog() {
+    final forgotPasswordEmailController = TextEditingController(text: emailController.text);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1a1539),
+        title: const Text(
+          "Reset Password",
+          style: TextStyle(color: Colors.white, fontSize: 20),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Enter your email address to receive a password reset link:",
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: forgotPasswordEmailController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Email',
+                labelStyle: const TextStyle(color: Colors.cyanAccent),
+                hintText: 'Enter your email address',
+                hintStyle: const TextStyle(color: Colors.white54),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.pinkAccent),
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter your email';
+                }
+                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                  return 'Please enter a valid email';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "You'll receive an email with a link to reset your password directly in your browser.",
+              style: TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel", style: TextStyle(color: Colors.cyanAccent)),
+          ),
+          TextButton(
+            onPressed: () => _requestPasswordReset(forgotPasswordEmailController.text.trim()),
+            child: const Text("Send Reset Link", style: TextStyle(color: Colors.pinkAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _requestPasswordReset(String email) async {
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter your email address'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    // Validate email format
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email address'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    Navigator.pop(context); // Close dialog
+
+    setState(() => isLoading = true);
+
+    try {
+      final result = await ApiService.forgotPassword(email);
+
+      if (result['status'] == 'success') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Password reset link sent to $email. Check your email to continue."),
+            backgroundColor: Colors.greenAccent,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+
+        // Optionally update the main email field with the entered email
+        if (emailController.text.isEmpty) {
+          setState(() {
+            emailController.text = email;
+          });
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Failed to send reset link'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to send password reset link'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
   Route _createFadeRoute(Widget page) {
     return PageRouteBuilder(
       pageBuilder: (context, animation, secondaryAnimation) => page,
@@ -322,6 +611,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     bool obscureText = false,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
+    bool isEnabled = true,
   }) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -350,6 +640,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   cursorColor: Colors.pinkAccent,
                   keyboardType: keyboardType,
                   validator: validator,
+                  enabled: isEnabled,
                   decoration: InputDecoration(
                     hintText: hint,
                     hintStyle: const TextStyle(color: Colors.cyanAccent),
@@ -487,9 +778,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: () {
-                            // Forgot password functionality
-                          },
+                          onPressed: _showForgotPasswordDialog,
                           child: const Text(
                             "Forgot Password?",
                             style: TextStyle(
@@ -510,7 +799,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.pinkAccent),
                       )
                           : ElevatedButton(
-                        onPressed: isOnline ? loginUser : null, // Updated to match new return type
+                        onPressed: isOnline ? loginUser : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isOnline ? Colors.pinkAccent : Colors.grey,
                           padding: const EdgeInsets.symmetric(
@@ -565,6 +854,41 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           ),
                         ),
                       ],
+                    ),
+                  ),
+
+                  // Help text for users
+                  const SizedBox(height: 30),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                      ),
+                      child: const Column(
+                        children: [
+                          Text(
+                            "💡 Security Features:",
+                            style: TextStyle(
+                              color: Colors.cyanAccent,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            "• Force logout requires email verification for security\n• All verification codes expire in 10 minutes\n• You can request password reset even if email field is empty",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.left,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],

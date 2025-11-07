@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
-import 'screens/splash_screen.dart';
+import 'package:techdancing/screens/splash_screen.dart';
+import 'package:techdancing/services/video_cache_service.dart'; // Add this import
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize video cache service
+  await VideoCacheService().init();
+
   runApp(MyApp());
 }
 

@@ -220,20 +220,8 @@ class _EndlessGameScreenState extends State<EndlessGameScreen> with WidgetsBindi
         'baseScore': 150,
         'isCustom': false,
       },
-      {
-        'name': 'LEFT ARM SIDE',
-        'description': 'Extend left arm to the side',
-        'scoringLogic': _scoreLeftArmSide,
-        'baseScore': 80,
-        'isCustom': false,
-      },
-      {
-        'name': 'RIGHT ARM SIDE',
-        'description': 'Extend right arm to the side',
-        'scoringLogic': _scoreRightArmSide,
-        'baseScore': 80,
-        'isCustom': false,
-      },
+
+
       {
         'name': 'T-POSE',
         'description': 'Form a T shape with your arms',
@@ -248,13 +236,7 @@ class _EndlessGameScreenState extends State<EndlessGameScreen> with WidgetsBindi
         'baseScore': 120,
         'isCustom': false,
       },
-      {
-        'name': 'ONE LEG UP',
-        'description': 'Lift one leg off the ground',
-        'scoringLogic': _scoreOneLegUp,
-        'baseScore': 180,
-        'isCustom': false,
-      },
+
       {
         'name': 'ARMS CROSSED',
         'description': 'Cross your arms in front',
@@ -296,7 +278,7 @@ class _EndlessGameScreenState extends State<EndlessGameScreen> with WidgetsBindi
   }
 
   void _startGame() async {
-    MusicService().playGameMusic(danceId: 1);
+    MusicService().playGameMusic(danceId: 99);
 
     setState(() {
       _isGameStarted = true;
@@ -575,35 +557,9 @@ class _EndlessGameScreenState extends State<EndlessGameScreen> with WidgetsBindi
     }
   }
 
-  static void _scoreLeftArmSide(Pose pose, Function(Pose) callback) {
-    final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
 
-    if (leftWrist == null || leftShoulder == null || leftElbow == null) return;
 
-    final armExtended = (leftWrist.x - leftShoulder.x).abs() > 50;
-    final elbowBent = (leftElbow.y - leftShoulder.y).abs() < 30;
 
-    if (armExtended && !elbowBent) {
-      callback(pose);
-    }
-  }
-
-  static void _scoreRightArmSide(Pose pose, Function(Pose) callback) {
-    final rightWrist = pose.landmarks[PoseLandmarkType.rightWrist];
-    final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
-    final rightElbow = pose.landmarks[PoseLandmarkType.rightElbow];
-
-    if (rightWrist == null || rightShoulder == null || rightElbow == null) return;
-
-    final armExtended = (rightWrist.x - rightShoulder.x).abs() > 50;
-    final elbowBent = (rightElbow.y - rightShoulder.y).abs() < 30;
-
-    if (armExtended && !elbowBent) {
-      callback(pose);
-    }
-  }
 
   static void _scoreTPose(Pose pose, Function(Pose) callback) {
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
@@ -638,21 +594,7 @@ class _EndlessGameScreenState extends State<EndlessGameScreen> with WidgetsBindi
     }
   }
 
-  static void _scoreOneLegUp(Pose pose, Function(Pose) callback) {
-    final leftAnkle = pose.landmarks[PoseLandmarkType.leftAnkle];
-    final rightAnkle = pose.landmarks[PoseLandmarkType.rightAnkle];
-    final leftKnee = pose.landmarks[PoseLandmarkType.leftKnee];
-    final rightKnee = pose.landmarks[PoseLandmarkType.rightKnee];
 
-    if (leftAnkle == null || rightAnkle == null || leftKnee == null || rightKnee == null) return;
-
-    final leftLegUp = (leftAnkle.y - leftKnee.y).abs() > 30;
-    final rightLegUp = (rightAnkle.y - rightKnee.y).abs() > 30;
-
-    if (leftLegUp != rightLegUp) {
-      callback(pose);
-    }
-  }
 
   static void _scoreArmsCrossed(Pose pose, Function(Pose) callback) {
     final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
